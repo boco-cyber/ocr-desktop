@@ -394,6 +394,20 @@ textarea { resize: vertical; min-height: 70px; }
 .text-muted { color: var(--muted); font-size: .82rem; }
 hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
+/* ═══════════════ PRESET BUTTONS ═══════════════ */
+.preset-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 5px;
+  padding: 3px 9px;
+  font-size: .72rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .15s;
+}
+.preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ═══════════════ OLLAMA SIDEBAR REFRESH ROW ═══════════════ */
 .refresh-row { display: flex; gap: 6px; }
 .refresh-row input { flex: 1; }
@@ -508,10 +522,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
     </div>
 
     <div class="sidebar-section">
-      <h3>Advanced</h3>
+      <h3>Instructions</h3>
       <div class="form-group">
-        <label>Custom OCR Prompt <span style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
-        <textarea id="customPrompt" placeholder="Leave blank for default prompt…"></textarea>
+        <label>Special Directions <span style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <textarea id="customPrompt" placeholder="e.g. This is a handwritten receipt. Focus on numbers and totals. Ignore stamps and watermarks." style="min-height:90px"></textarea>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+          <button class="preset-btn" onclick="setPreset('table')">Table</button>
+          <button class="preset-btn" onclick="setPreset('handwriting')">Handwriting</button>
+          <button class="preset-btn" onclick="setPreset('numbers')">Numbers only</button>
+          <button class="preset-btn" onclick="setPreset('noheaders')">Skip headers</button>
+          <button class="preset-btn" onclick="setPreset('')">Clear</button>
+        </div>
       </div>
     </div>
 
@@ -1234,6 +1255,20 @@ function timeAgo(iso) {
   const h = Math.floor(m/60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h/24)}d ago`;
+}
+
+// ═══════════════════════════════════════════════════════
+// PROMPT PRESETS
+// ═══════════════════════════════════════════════════════
+const PRESETS = {
+  table:       'This document contains tables. Extract all table data preserving rows and columns, using | to separate columns and --- for row separators.',
+  handwriting: 'This is handwritten text. Do your best to decipher the handwriting accurately. If a word is unclear, write [unclear] instead of guessing.',
+  numbers:     'Extract ONLY numbers, amounts, dates, and numeric data from this document. Ignore decorative text and labels unless they are essential context.',
+  noheaders:   'Skip page headers, footers, page numbers, and watermarks. Extract only the main body text.',
+};
+
+function setPreset(key) {
+  document.getElementById('customPrompt').value = PRESETS[key] || '';
 }
 
 function escHtml(s) {
