@@ -516,8 +516,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
     <div class="sidebar-section">
       <h3>Document</h3>
       <div class="form-group">
-        <label>Document Language <span style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0">(optional hint)</span></label>
-        <input type="text" id="langInput" placeholder="Auto-detect / Arabic / French…"/>
+        <label>Document Language</label>
+        <input type="text" id="langInput" placeholder="Leave blank to auto-detect…"/>
+      </div>
+      <div class="form-group">
+        <label>Parallel Pages (chunks)</label>
+        <select id="concurrencySelect">
+          <option value="1">1 — Sequential (safe)</option>
+          <option value="2">2 — Moderate</option>
+          <option value="3" selected>3 — Recommended</option>
+          <option value="5">5 — Fast (may hit rate limits)</option>
+        </select>
       </div>
     </div>
 
@@ -566,9 +575,23 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
       <!-- File info + start -->
       <div id="fileCard" style="display:none" class="card">
         <div class="card-title">📎 <span id="fileName"></span></div>
-        <div class="text-muted" id="fileStats" style="margin-bottom:12px"></div>
+        <div class="flex-row" style="margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <span class="text-muted" id="fileStats"></span>
+          <span id="detectedLangBadge" style="display:none;background:rgba(91,114,255,.15);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:2px 10px;font-size:.78rem;font-weight:600"></span>
+          <span id="rtlDetectBadge" style="display:none;background:rgba(251,191,36,.12);border:1px solid var(--yellow);color:var(--yellow);border-radius:6px;padding:2px 10px;font-size:.78rem;font-weight:600">RTL</span>
+        </div>
+
+        <!-- Cost estimate badge -->
+        <div id="estimateBadge" style="display:none;margin-bottom:12px">
+          <span id="estimateLabel" style="display:inline-flex;align-items:center;gap:6px;background:rgba(251,191,36,.1);border:1px solid var(--yellow);color:var(--yellow);border-radius:6px;padding:6px 14px;font-size:.82rem;font-weight:600">
+            💰 Estimating…
+          </span>
+          <span id="estimateBreakdown" style="display:block;font-size:.72rem;color:var(--muted);margin-top:4px"></span>
+        </div>
+
         <div class="flex-row">
           <button class="btn btn-primary" id="startBtn" onclick="startOCR()">▶ Start OCR</button>
+          <button class="btn btn-ghost btn-sm" id="detectBtn" onclick="runDetectLanguage()">🔍 Detect Language</button>
           <button class="btn btn-ghost btn-sm" onclick="clearJob()">✕ Clear</button>
         </div>
       </div>
@@ -621,8 +644,12 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <hr/>
         <div class="flex-row">
           <button class="btn btn-ghost btn-sm" onclick="copyAll()">⎘ Copy All</button>
-          <button class="btn btn-ghost btn-sm" onclick="downloadResult('txt')">⬇ TXT</button>
-          <button class="btn btn-primary btn-sm" onclick="downloadResult('docx')">⬇ DOCX</button>
+          <span style="color:var(--muted);font-size:.8rem">Export:</span>
+          <select id="exportFormat" style="width:auto;padding:5px 10px;font-size:.82rem">
+            <option value="txt">Plain Text (.txt)</option>
+            <option value="docx">Word Document (.docx)</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="downloadSelected()">⬇ Download</button>
         </div>
       </div>
 
@@ -779,7 +806,11 @@ function onProviderChange() {
     const s = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
     if (s.ollamaBaseUrl) document.getElementById('ollamaBaseUrl').value = s.ollamaBaseUrl;
     fetchOllamaModels();
+    // Ollama = always 1 concurrent by default
+    document.getElementById('concurrencySelect').value = '1';
   }
+  // Re-run estimate if a job is loaded
+  if (currentJobId) runEstimate(currentJobId);
 }
 
 async function fetchOllamaModels() {
@@ -833,14 +864,88 @@ async function uploadFile(file) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Upload failed');
     currentJobId = data.jobId;
-    document.getElementById('fileCard').style.display = 'block';
-    document.getElementById('fileName').textContent   = data.filename;
-    document.getElementById('fileStats').textContent  = `${data.pageCount} page(s) ready`;
-    document.getElementById('resultCard').style.display   = 'none';
+
+    // Reset badges
+    document.getElementById('detectedLangBadge').style.display = 'none';
+    document.getElementById('rtlDetectBadge').style.display    = 'none';
+    document.getElementById('estimateBadge').style.display     = 'none';
+
+    document.getElementById('fileCard').style.display    = 'block';
+    document.getElementById('fileName').textContent      = data.filename;
+    document.getElementById('fileStats').textContent     = `${data.pageCount} page(s) ready`;
+    document.getElementById('resultCard').style.display  = 'none';
     document.getElementById('progressCard').style.display = 'none';
     showToast(`${data.pageCount} page(s) uploaded`, 'ok');
+
+    // Auto-run estimate
+    runEstimate(data.jobId);
   } catch (err) {
     showToast(err.message, 'err');
+  }
+}
+
+async function runDetectLanguage() {
+  if (!currentJobId) return;
+  const provider     = document.getElementById('providerSelect').value;
+  const isOllama     = provider === 'ollama';
+  const model        = isOllama ? document.getElementById('ollamaModelSelect').value : document.getElementById('modelSelect').value;
+  const apiKey       = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
+
+  const btn = document.getElementById('detectBtn');
+  btn.disabled     = true;
+  btn.textContent  = '🔍 Detecting…';
+
+  try {
+    const res  = await fetch('/api/detect-language', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: currentJobId, provider, model, apiKey, ollamaBaseUrl }),
+    });
+    const data = await res.json();
+
+    if (data.language) {
+      document.getElementById('langInput').value = data.language;
+      const badge = document.getElementById('detectedLangBadge');
+      badge.textContent    = `Detected: ${data.language}`;
+      badge.style.display  = 'inline-block';
+      if (data.rtl) document.getElementById('rtlDetectBadge').style.display = 'inline-block';
+      showToast(`Detected: ${data.language}`, 'ok');
+    } else {
+      showToast(data.error || 'Could not detect language', 'err');
+    }
+  } catch (err) {
+    showToast(err.message, 'err');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '🔍 Detect Language';
+  }
+}
+
+async function runEstimate(jobId) {
+  const provider = document.getElementById('providerSelect').value;
+  const model    = provider === 'ollama'
+    ? document.getElementById('ollamaModelSelect').value
+    : document.getElementById('modelSelect').value;
+
+  document.getElementById('estimateBadge').style.display = 'block';
+  document.getElementById('estimateLabel').textContent   = '💰 Estimating…';
+  document.getElementById('estimateBreakdown').textContent = '';
+
+  try {
+    const res  = await fetch('/api/estimate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: jobId || currentJobId, provider, model }),
+    });
+    const data = await res.json();
+    if (data.free) {
+      document.getElementById('estimateLabel').innerHTML  = '🟢 Free (local — Ollama)';
+      document.getElementById('estimateBreakdown').textContent = '';
+    } else {
+      document.getElementById('estimateLabel').innerHTML  = `💰 Est. cost: <strong>${data.label}</strong>`;
+      document.getElementById('estimateBreakdown').textContent = data.breakdown || '';
+    }
+  } catch {
+    document.getElementById('estimateBadge').style.display = 'none';
   }
 }
 
@@ -856,10 +961,11 @@ async function startOCR() {
   const model    = isOllama
     ? document.getElementById('ollamaModelSelect').value
     : document.getElementById('modelSelect').value;
-  const apiKey       = isOllama ? '' : document.getElementById('apiKey').value.trim();
-  const language     = document.getElementById('langInput').value.trim();
-  const customPrompt = document.getElementById('customPrompt').value.trim();
+  const apiKey        = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const language      = document.getElementById('langInput').value.trim();
+  const customPrompt  = document.getElementById('customPrompt').value.trim();
   const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
+  const concurrency   = parseInt(document.getElementById('concurrencySelect').value) || 3;
 
   document.getElementById('fileCard').style.display     = 'none';
   document.getElementById('progressCard').style.display = 'block';
@@ -869,7 +975,7 @@ async function startOCR() {
   const res  = await fetch('/api/ocr', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ jobId: currentJobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl }),
+    body:    JSON.stringify({ jobId: currentJobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl, concurrency }),
   });
   const data = await res.json();
   if (!res.ok) { showToast(data.error || 'Failed to start', 'err'); return; }
@@ -976,7 +1082,7 @@ async function showResult(jobId) {
   document.getElementById('rtlBadge').style.display  = isRTL ? 'inline-block' : 'none';
   const lb = document.getElementById('langBadge');
   lb.style.display = 'none';
-  const detected = detectLangHeuristic(data.fullText);
+  const detected = data.detectedLang || detectLangHeuristic(data.fullText);
   if (detected) { lb.textContent = detected; lb.style.display = 'inline-block'; }
 
   buildResultTabs(data.pages);
@@ -1035,6 +1141,11 @@ function copyAll() {
 
 function downloadResult(fmt) {
   if (currentJobId) window.open(`/api/download/${currentJobId}/${fmt}`);
+}
+
+function downloadSelected() {
+  const fmt = document.getElementById('exportFormat').value;
+  downloadResult(fmt);
 }
 
 // ═══════════════════════════════════════════════════════
