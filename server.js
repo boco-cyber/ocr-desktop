@@ -420,6 +420,30 @@ app.get('/api/ollama/models', async (req, res) => {
   }
 });
 
+// ── Test API key ──────────────────────────────────────────────────────────
+// Sends a tiny vision request to verify the key works before OCR.
+app.post('/api/test-key', async (req, res) => {
+  const { provider, model, apiKey, baseUrl } = req.body;
+  const providerModule = PROVIDERS[provider];
+  if (!providerModule) return res.status(400).json({ ok: false, error: 'Unknown provider' });
+
+  // 1x1 white PNG as minimal test image
+  const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
+
+  try {
+    await providerModule.ocr({
+      apiKey,
+      model,
+      imageBase64: TINY_PNG,
+      prompt: 'Reply with the single word: ok',
+      baseUrl,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 // ── Serve UI ───────────────────────────────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
