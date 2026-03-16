@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OCR Desktop</title>
+<style>
+  :root {
+    --bg:           #0f1117;
+    --surface:      #1a1d27;
+    --surface2:     #242736;
+    --border:       #2e3148;
+    --accent:       #6c63ff;
+    --accent-hover: #857dff;
+    --text:         #e2e4f0;
+    --text-muted:   #7b82a8;
+    --success:      #3ecf8e;
+    --warning:      #f5a623;
+    --danger:       #e84c4c;
+    --font:         'Segoe UI', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 300px;
+    min-width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px;
+    gap: 16px;
+    overflow-y: auto;
+  }
+
+  .logo {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo span { color: var(--text-muted); font-weight: 400; font-size: 13px; display: block; margin-top: 2px; }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  select, input[type="text"], input[type="password"], textarea {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+
+  textarea { resize: vertical; min-height: 70px; }
+
+  .field { display: flex; flex-direction: column; }
+
+  .ollama-url-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .ollama-url-row input { flex: 1; }
+  .btn-refresh {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+
+  .model-badge {
+    display: inline-block;
+    background: rgba(108,99,255,0.15);
+    color: var(--accent);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+
+  #ollamaSection { display: none; }
+  #apiKeySection { display: flex; flex-direction: column; }
+
+  .sidebar-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding: 8px;
+    background: rgba(108,99,255,0.08);
+    border-radius: 6px;
+    border: 1px solid rgba(108,99,255,0.15);
+  }
+
+  /* ── Main area ── */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #topbar {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+  }
+
+  .btn {
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font);
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover:not(:disabled) { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  #content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+  }
+
+  /* ── Upload zone ── */
+  #uploadZone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface);
+    margin-bottom: 24px;
+  }
+  #uploadZone:hover, #uploadZone.dragging {
+    border-color: var(--accent);
+    background: rgba(108,99,255,0.06);
+  }
+  #uploadZone .upload-icon { font-size: 48px; margin-bottom: 12px; }
+  #uploadZone h3 { font-size: 18px; margin-bottom: 6px; }
+  #uploadZone p { color: var(--text-muted); font-size: 13px; }
+  #uploadZone .formats {
+    margin-top: 12px;
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .format-tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: monospace;
+  }
+  #fileInput { display: none; }
+
+  /* ── Progress section ── */
+  #progressSection {
+    display: none;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  .progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .progress-header h4 { font-size: 15px; }
+  .progress-header .meta { font-size: 12px; color: var(--text-muted); }
+
+  .progress-bar-wrap {
+    background: var(--surface2);
+    border-radius: 6px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    border-radius: 6px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  .page-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .page-box {
+    width: 32px;
+    height: 32px;
+    border-radius: 5px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .page-box.pending   { background: var(--surface2); }
+  .page-box.processing {
+    background: rgba(108,99,255,0.2);
+    border-color: var(--accent);
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .page-box.done     { background: rgba(62,207,142,0.2); border-color: var(--success); color: var(--success); }
+  .page-box.failed   { background: rgba(232,76,76,0.2);  border-color: var(--danger);  color: var(--danger); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.5; }
+  }
+
+  .progress-actions { display: flex; gap: 8px; }
+
+  /* ── Result section ── */
+  #resultSection {
+    display: none;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  .result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .result-header h4 { font-size: 15px; }
+  .result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Format toolbar ── */
+  .format-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .format-toolbar label { margin-bottom: 0; text-transform: none; font-size: 12px; color: var(--text-muted); }
+  .format-toolbar select {
+    width: auto;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  .rtl-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(245,166,35,0.15);
+    color: var(--warning);
+    border: 1px solid rgba(245,166,35,0.2);
+  }
+  .lang-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(62,207,142,0.1);
+    color: var(--success);
+    border: 1px solid rgba(62,207,142,0.2);
+  }
+
+  .result-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+  }
+  .tab {
+    padding: 6px 14px;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font);
+    transition: all 0.2s;
+  }
+  .tab.active { background: var(--surface2); color: var(--text); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  #resultText {
+    width: 100%;
+    min-height: 300px;
+    max-height: 500px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 14px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    white-space: pre-wrap;
+    overflow-y: auto;
+  }
+
+  .stat-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .stat strong { color: var(--text); }
+
+  /* ── Job history ── */
+  #historySection { margin-bottom: 24px; }
+  #historySection h4 {
+    font-size: 14px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+
+  .job-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .job-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .job-item:hover { border-color: var(--accent); }
+  .job-item .job-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-item .job-meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .job-item .job-del {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+  .job-item .job-del:hover { color: var(--danger); }
+
+  .status-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .status-badge.done       { background: rgba(62,207,142,0.15); color: var(--success); }
+  .status-badge.processing { background: rgba(108,99,255,0.15); color: var(--accent); }
+  .status-badge.failed     { background: rgba(232,76,76,0.15);  color: var(--danger); }
+  .status-badge.uploaded   { background: rgba(123,130,168,0.15); color: var(--text-muted); }
+  .status-badge.cancelled  { background: rgba(245,166,35,0.15);  color: var(--warning); }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--text);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 1000;
+    max-width: 320px;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+  #toast.success { border-color: var(--success); color: var(--success); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ─────────── SIDEBAR ─────────── -->
+<aside id="sidebar">
+  <div class="logo">OCR Desktop <span>AI-powered text extraction</span></div>
+
+  <div class="field">
+    <label>AI Provider</label>
+    <select id="providerSelect" onchange="onProviderChange()">
+      <option value="anthropic">Anthropic (Claude)</option>
+      <option value="openai">OpenAI (GPT-4o)</option>
+      <option value="gemini">Google Gemini</option>
+      <option value="ollama">Ollama (Local)</option>
+    </select>
+  </div>
+
+  <!-- Ollama-specific settings -->
+  <div id="ollamaSection">
+    <div class="field" style="margin-bottom:10px">
+      <label>Ollama Base URL</label>
+      <div class="ollama-url-row">
+        <input type="text" id="ollamaBaseUrl" value="http://localhost:11434" placeholder="http://localhost:11434" />
+        <button class="btn-refresh" onclick="fetchOllamaModels()" title="Refresh model list">↺ Refresh</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Model <span id="ollamaModelCount" style="font-size:10px;color:var(--text-muted)"></span></label>
+      <select id="ollamaModelSelect">
+        <option value="">Loading models…</option>
+      </select>
+    </div>
+    <div class="sidebar-hint" id="ollamaHint" style="margin-top:8px">
+      Only vision models can OCR images. Vision-capable models are marked with a badge. Install with: <code>ollama pull llava</code>
+    </div>
+  </div>
+
+  <!-- Cloud provider settings -->
+  <div id="apiKeySection">
+    <div class="field" style="margin-bottom:10px">
+      <label>Model</label>
+      <select id="modelSelect"></select>
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input type="password" id="apiKey" placeholder="Paste your API key…" autocomplete="off" />
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Document Language (optional)</label>
+    <input type="text" id="langInput" placeholder="e.g. Arabic, French, English…" />
+  </div>
+
+  <div class="field">
+    <label>Custom OCR Prompt (optional)</label>
+    <textarea id="customPrompt" placeholder="Leave blank to use the default OCR prompt…"></textarea>
+  </div>
+
+  <div style="flex:1"></div>
+
+  <div class="sidebar-hint">
+    Supported: JPG, PNG, TIFF, BMP, WebP, PDF (scanned or image-based, multi-page)
+  </div>
+</aside>
+
+<!-- ─────────── MAIN ─────────── -->
+<div id="main">
+  <div id="topbar">
+    <span style="font-size:14px;color:var(--text-muted);flex:1">
+      Upload a file to begin
+    </span>
+    <button class="btn btn-primary" onclick="triggerUpload()" id="uploadBtn">+ Upload File</button>
+    <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp,.pdf" onchange="handleFileSelect(event)" />
+  </div>
+
+  <div id="content">
+
+    <!-- Upload zone -->
+    <div id="uploadZone"
+      onclick="triggerUpload()"
+      ondragover="onDragOver(event)"
+      ondragleave="onDragLeave(event)"
+      ondrop="onDrop(event)"
+    >
+      <div class="upload-icon">📄</div>
+      <h3>Drop your file here</h3>
+      <p>or click to browse</p>
+      <div class="formats">
+        <span class="format-tag">.jpg</span>
+        <span class="format-tag">.png</span>
+        <span class="format-tag">.tiff</span>
+        <span class="format-tag">.bmp</span>
+        <span class="format-tag">.webp</span>
+        <span class="format-tag">.pdf</span>
+      </div>
+    </div>
+
+    <!-- Progress section -->
+    <div id="progressSection">
+      <div class="progress-header">
+        <h4 id="progressTitle">Processing…</h4>
+        <span class="meta" id="progressMeta"></span>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+      <div class="page-grid" id="pageGrid"></div>
+      <div class="progress-actions">
+        <button class="btn btn-danger" id="cancelBtn" onclick="cancelJob()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Result section -->
+    <div id="resultSection">
+      <div class="result-header">
+        <div>
+          <h4 id="resultTitle">OCR Result</h4>
+          <div class="stat-row" id="resultStats"></div>
+        </div>
+        <div class="result-actions">
+          <button class="btn btn-secondary" onclick="copyAll()">Copy All</button>
+          <button class="btn btn-secondary" onclick="downloadTxt()">Download TXT</button>
+          <button class="btn btn-primary"   onclick="downloadDocx()">Download DOCX</button>
+        </div>
+      </div>
+
+      <!-- Format toolbar -->
+      <div class="format-toolbar">
+        <label>Font:</label>
+        <select id="fontSelect" onchange="applyFormat()">
+          <option value="'Courier New', monospace">Monospace</option>
+          <option value="'Segoe UI', sans-serif">Sans-serif</option>
+          <option value="'Georgia', serif">Serif</option>
+          <option value="'Arial', sans-serif">Arial</option>
+          <option value="'Times New Roman', serif">Times New Roman</option>
+          <option value="'Amiri', 'Arial', serif">Amiri (Arabic)</option>
+          <option value="'Noto Sans', 'Arial', sans-serif">Noto Sans (CJK/Global)</option>
+        </select>
+        <label>Size:</label>
+        <select id="fontSizeSelect" onchange="applyFormat()">
+          <option value="11px">Small</option>
+          <option value="13px" selected>Medium</option>
+          <option value="16px">Large</option>
+          <option value="20px">XL</option>
+        </select>
+        <label>Line:</label>
+        <select id="lineHeightSelect" onchange="applyFormat()">
+          <option value="1.4">Tight</option>
+          <option value="1.6" selected>Normal</option>
+          <option value="2.0">Loose</option>
+        </select>
+        <span id="rtlBadge" class="rtl-badge" style="display:none">RTL ↰</span>
+        <span id="langBadge" class="lang-badge" style="display:none"></span>
+      </div>
+
+      <div class="result-tabs" id="resultTabs"></div>
+      <div id="resultText" contenteditable="true" spellcheck="false"></div>
+    </div>
+
+    <!-- Job history -->
+    <div id="historySection">
+      <h4>Recent Jobs</h4>
+      <div class="job-list" id="jobList"></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let currentJobId   = null;
+let pollInterval   = null;
+let resultPages    = [];
+let activePageTab  = -1; // -1 = all pages
+let isRTL          = false;
+
+const MODELS = {
+  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-5', 'claude-haiku-4-5-20251001'],
+  openai:    ['gpt-4o', 'gpt-4o-mini'],
+  gemini:    ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'],
+};
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadFromStorage();
+  onProviderChange();
+  loadJobHistory();
+});
+
+function loadFromStorage() {
+  const saved = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
+  if (saved.provider)      document.getElementById('providerSelect').value = saved.provider;
+  if (saved.apiKey)        document.getElementById('apiKey').value = saved.apiKey;
+  if (saved.model)         document.getElementById('modelSelect').value = saved.model;
+  if (saved.ollamaBaseUrl) document.getElementById('ollamaBaseUrl').value = saved.ollamaBaseUrl;
+  if (saved.lang)          document.getElementById('langInput').value = saved.lang;
+}
+
+function saveToStorage() {
+  const provider = document.getElementById('providerSelect').value;
+  localStorage.setItem('ocrSettings', JSON.stringify({
+    provider,
+    apiKey:        provider !== 'ollama' ? document.getElementById('apiKey').value : '',
+    model:         provider !== 'ollama'
+                     ? document.getElementById('modelSelect').value
+                     : document.getElementById('ollamaModelSelect').value,
+    ollamaBaseUrl: document.getElementById('ollamaBaseUrl').value,
+    lang:          document.getElementById('langInput').value,
+  }));
+}
+
+// ─── Provider change ──────────────────────────────────────────────────────────
+function onProviderChange() {
+  const provider = document.getElementById('providerSelect').value;
+  const isOllama = provider === 'ollama';
+
+  document.getElementById('ollamaSection').style.display  = isOllama ? 'block' : 'none';
+  document.getElementById('apiKeySection').style.display  = isOllama ? 'none'  : 'flex';
+
+  if (!isOllama) {
+    const models   = MODELS[provider] || [];
+    const sel      = document.getElementById('modelSelect');
+    const saved    = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
+    sel.innerHTML  = models.map(m => `<option value="${m}">${m}</option>`).join('');
+    if (saved.model && models.includes(saved.model)) sel.value = saved.model;
+  } else {
+    fetchOllamaModels();
+  }
+}
+
+async function fetchOllamaModels() {
+  const baseUrl = document.getElementById('ollamaBaseUrl').value.trim() || 'http://localhost:11434';
+  const sel     = document.getElementById('ollamaModelSelect');
+  const count   = document.getElementById('ollamaModelCount');
+
+  sel.innerHTML = '<option value="">Loading…</option>';
+  count.textContent = '';
+
+  try {
+    const res  = await fetch(`/api/ollama/models?baseUrl=${encodeURIComponent(baseUrl)}`);
+    const data = await res.json();
+
+    if (data.error || data.models.length === 0) {
+      sel.innerHTML = `<option value="">Ollama not reachable — is it running?</option>`;
+      count.textContent = data.error || '';
+      return;
+    }
+
+    // Sort: vision models first
+    const sorted = [...data.models].sort((a, b) => b.isVision - a.isVision);
+    sel.innerHTML = sorted.map(m => {
+      const badge = m.isVision ? ' 👁 vision' : '';
+      return `<option value="${m.name}">${m.name}${badge}</option>`;
+    }).join('');
+
+    const visionCount = sorted.filter(m => m.isVision).length;
+    count.textContent = `${sorted.length} models, ${visionCount} vision`;
+
+    // Restore saved selection
+    const saved = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
+    if (saved.model && sorted.find(m => m.name === saved.model)) {
+      sel.value = saved.model;
+    }
+  } catch (err) {
+    sel.innerHTML = `<option value="">Error: ${err.message}</option>`;
+  }
+}
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+function triggerUpload() {
+  document.getElementById('fileInput').click();
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.add('dragging');
+}
+
+function onDragLeave(e) {
+  document.getElementById('uploadZone').classList.remove('dragging');
+}
+
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('dragging');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) uploadFile(file);
+  e.target.value = '';
+}
+
+async function uploadFile(file) {
+  showToast(`Uploading ${file.name}…`);
+  document.getElementById('uploadBtn').disabled = true;
+
+  const form = new FormData();
+  form.append('file', file);
+
+  try {
+    const res  = await fetch('/api/upload', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+    currentJobId = data.jobId;
+    showToast(`${data.pageCount} page(s) ready. Starting OCR…`, 'success');
+    startOCR(data.jobId, data.pageCount);
+  } catch (err) {
+    showToast(`Upload error: ${err.message}`, 'error');
+    document.getElementById('uploadBtn').disabled = false;
+  }
+}
+
+// ─── Start OCR ────────────────────────────────────────────────────────────────
+async function startOCR(jobId, pageCount) {
+  saveToStorage();
+
+  const provider = document.getElementById('providerSelect').value;
+  const isOllama = provider === 'ollama';
+  const model    = isOllama
+    ? document.getElementById('ollamaModelSelect').value
+    : document.getElementById('modelSelect').value;
+  const apiKey   = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const language = document.getElementById('langInput').value.trim();
+  const customPrompt = document.getElementById('customPrompt').value.trim();
+  const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
+
+  // Show progress
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('resultSection').style.display   = 'none';
+  document.getElementById('progressTitle').textContent     = `OCR: processing…`;
+  document.getElementById('progressMeta').textContent      = `${pageCount} page(s) • ${provider} • ${model || 'default'}`;
+  document.getElementById('cancelBtn').disabled            = false;
+
+  buildPageGrid(pageCount);
+
+  const res = await fetch('/api/ocr', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ jobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.error || 'Failed to start OCR', 'error');
+    document.getElementById('uploadBtn').disabled = false;
+    return;
+  }
+
+  startPolling(jobId);
+}
+
+// ─── Page grid ────────────────────────────────────────────────────────────────
+function buildPageGrid(pageCount) {
+  const grid = document.getElementById('pageGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < pageCount; i++) {
+    const box = document.createElement('div');
+    box.className   = 'page-box pending';
+    box.textContent = i + 1;
+    box.id          = `page-box-${i}`;
+    box.title       = `Page ${i + 1}`;
+    box.onclick     = () => scrollToPage(i);
+    grid.appendChild(box);
+  }
+}
+
+function updatePageGrid(pages) {
+  for (const p of pages) {
+    const box = document.getElementById(`page-box-${p.index}`);
+    if (box) {
+      box.className = `page-box ${p.status}`;
+      box.title     = p.error ? `Page ${p.index + 1}: ${p.error}` : `Page ${p.index + 1}: ${p.status}`;
+    }
+  }
+}
+
+// ─── Polling ─────────────────────────────────────────────────────────────────
+function startPolling(jobId) {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(() => pollStatus(jobId), 1500);
+}
+
+async function pollStatus(jobId) {
+  try {
+    const res  = await fetch(`/api/status/${jobId}`);
+    const data = await res.json();
+    if (!res.ok) return;
+
+    document.getElementById('progressBar').style.width = data.progress + '%';
+    document.getElementById('progressMeta').textContent =
+      `${data.done} / ${data.total} pages done${data.failed > 0 ? ` • ${data.failed} failed` : ''}`;
+
+    updatePageGrid(data.pages);
+
+    if (data.status === 'done' || data.status === 'failed' || data.status === 'cancelled') {
+      clearInterval(pollInterval);
+      pollInterval = null;
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('cancelBtn').disabled = true;
+
+      if (data.rtl) {
+        isRTL = true;
+        applyFormat();
+      }
+      if (data.status === 'done') {
+        showToast('OCR complete!', 'success');
+        await showResult(jobId);
+      } else if (data.status === 'cancelled') {
+        showToast('OCR cancelled.');
+        document.getElementById('progressSection').style.display = 'none';
+      } else {
+        const msg = data.fatalError ? `Fatal error: ${data.fatalError}` : `OCR failed (${data.failed} page(s) failed)`;
+        showToast(msg, 'error');
+        if (data.done > 0) await showResult(jobId);
+      }
+      loadJobHistory();
+    }
+  } catch (err) {
+    console.error('Poll error:', err);
+  }
+}
+
+// ─── Show result ──────────────────────────────────────────────────────────────
+async function showResult(jobId) {
+  const res  = await fetch(`/api/result/${jobId}`);
+  const data = await res.json();
+  if (!res.ok) return;
+
+  resultPages    = data.pages;
+  currentJobId   = jobId;
+  activePageTab  = -1;
+  isRTL          = data.rtl || false;
+
+  document.getElementById('resultSection').style.display = 'block';
+  document.getElementById('resultTitle').textContent     = data.originalName;
+
+  // RTL badge
+  const rtlBadge = document.getElementById('rtlBadge');
+  rtlBadge.style.display = isRTL ? 'inline-block' : 'none';
+
+  // Auto-detect language badge from text content
+  const langBadge = document.getElementById('langBadge');
+  langBadge.style.display = 'none';
+  if (data.config?.language) {
+    langBadge.textContent   = data.config.language;
+    langBadge.style.display = 'inline-block';
+  } else if (data.fullText) {
+    const detected = detectLangHeuristic(data.fullText);
+    if (detected) {
+      langBadge.textContent   = detected;
+      langBadge.style.display = 'inline-block';
+    }
+  }
+
+  applyFormat();
+
+  // Stats
+  const charCount = data.fullText.length;
+  const wordCount = data.fullText.trim().split(/\s+/).filter(Boolean).length;
+  document.getElementById('resultStats').innerHTML =
+    `<span class="stat"><strong>${data.pageCount}</strong> pages</span>
+     <span class="stat"><strong>${charCount.toLocaleString()}</strong> chars</span>
+     <span class="stat"><strong>${wordCount.toLocaleString()}</strong> words</span>`;
+
+  buildResultTabs(data.pages);
+  renderResultText(-1, data.pages, data.fullText);
+}
+
+function buildResultTabs(pages) {
+  const tabs = document.getElementById('resultTabs');
+  tabs.innerHTML = '';
+
+  const allBtn = document.createElement('button');
+  allBtn.className   = 'tab active';
+  allBtn.textContent = 'All Pages';
+  allBtn.onclick     = () => switchTab(-1, allBtn);
+  tabs.appendChild(allBtn);
+
+  if (pages.length > 1) {
+    for (const p of pages) {
+      const btn = document.createElement('button');
+      btn.className   = `tab${p.status === 'failed' ? ' failed' : ''}`;
+      btn.textContent = `Page ${p.index + 1}${p.status === 'failed' ? ' !' : ''}`;
+      btn.onclick     = () => switchTab(p.index, btn);
+      tabs.appendChild(btn);
+    }
+  }
+}
+
+function switchTab(pageIndex, btn) {
+  activePageTab = pageIndex;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  renderResultText(pageIndex, resultPages, null);
+}
+
+function renderResultText(pageIndex, pages, fullText) {
+  const el = document.getElementById('resultText');
+  if (pageIndex === -1) {
+    el.textContent = fullText !== null ? fullText :
+      pages.map((p, i) =>
+        pages.length > 1 ? `=== Page ${i + 1} ===\n${p.text}` : p.text
+      ).join('\n\n');
+  } else {
+    const page = pages.find(p => p.index === pageIndex);
+    el.textContent = page ? page.text : '';
+  }
+}
+
+function scrollToPage(index) {
+  if (resultPages.length === 0) return;
+  // Switch to that page's tab
+  const tabs = document.querySelectorAll('.tab');
+  if (tabs[index + 1]) tabs[index + 1].click();
+  document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ─── Actions ─────────────────────────────────────────────────────────────────
+async function cancelJob() {
+  if (!currentJobId) return;
+  await fetch(`/api/cancel/${currentJobId}`, { method: 'POST' });
+  showToast('Cancellation requested…');
+}
+
+function copyAll() {
+  const text = document.getElementById('resultText').textContent;
+  navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success'));
+}
+
+function downloadTxt() {
+  if (!currentJobId) return;
+  window.open(`/api/download/${currentJobId}/txt`);
+}
+
+function downloadDocx() {
+  if (!currentJobId) return;
+  window.open(`/api/download/${currentJobId}/docx`);
+}
+
+// ─── Job history ──────────────────────────────────────────────────────────────
+async function loadJobHistory() {
+  const res  = await fetch('/api/jobs');
+  const data = await res.json();
+  const list = document.getElementById('jobList');
+
+  if (!data.jobs || data.jobs.length === 0) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:13px">No jobs yet.</div>';
+    return;
+  }
+
+  list.innerHTML = data.jobs.slice(0, 20).map(j => `
+    <div class="job-item" onclick="loadJob('${j.id}')">
+      <div class="job-name" title="${j.originalName}">${j.originalName}</div>
+      <span class="status-badge ${j.status}">${j.status}</span>
+      <span class="job-meta">${j.pageCount} pg • ${j.provider || '—'}</span>
+      <span class="job-meta">${timeAgo(j.uploadedAt)}</span>
+      <button class="job-del" onclick="deleteJob(event,'${j.id}')" title="Delete">×</button>
+    </div>
+  `).join('');
+}
+
+async function loadJob(jobId) {
+  currentJobId = jobId;
+  const res  = await fetch(`/api/status/${jobId}`);
+  const data = await res.json();
+
+  if (data.status === 'processing') {
+    // Resume polling
+    const db = await (await fetch(`/api/result/${jobId}`)).json();
+    document.getElementById('progressSection').style.display = 'block';
+    buildPageGrid(data.total);
+    updatePageGrid(data.pages);
+    document.getElementById('progressBar').style.width = data.progress + '%';
+    startPolling(jobId);
+  } else if (data.status === 'done' || data.status === 'failed') {
+    document.getElementById('progressSection').style.display = 'none';
+    await showResult(jobId);
+    document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+async function deleteJob(e, jobId) {
+  e.stopPropagation();
+  await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+  if (currentJobId === jobId) {
+    currentJobId = null;
+    document.getElementById('resultSection').style.display   = 'none';
+    document.getElementById('progressSection').style.display = 'none';
+  }
+  loadJobHistory();
+  showToast('Job deleted.');
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type ? ` ${type}` : '');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+
+// ─── Format / RTL ────────────────────────────────────────────────────────────
+function applyFormat() {
+  const el         = document.getElementById('resultText');
+  const font       = document.getElementById('fontSelect').value;
+  const fontSize   = document.getElementById('fontSizeSelect').value;
+  const lineHeight = document.getElementById('lineHeightSelect').value;
+
+  el.style.fontFamily  = font;
+  el.style.fontSize    = fontSize;
+  el.style.lineHeight  = lineHeight;
+  el.style.direction   = isRTL ? 'rtl' : 'ltr';
+  el.style.textAlign   = isRTL ? 'right' : 'left';
+  el.style.unicodeBidi = isRTL ? 'bidi-override' : 'normal';
+}
+
+// Heuristic language detection from Unicode script ranges
+function detectLangHeuristic(text) {
+  if (!text) return null;
+  const sample = text.slice(0, 1000);
+  const counts = {
+    'Arabic':           (sample.match(/[\u0600-\u06FF]/g) || []).length,
+    'Hebrew':           (sample.match(/[\u0590-\u05FF]/g) || []).length,
+    'Chinese':          (sample.match(/[\u4E00-\u9FFF]/g) || []).length,
+    'Japanese':         (sample.match(/[\u3040-\u30FF]/g) || []).length,
+    'Korean':           (sample.match(/[\uAC00-\uD7AF]/g) || []).length,
+    'Russian/Cyrillic': (sample.match(/[\u0400-\u04FF]/g) || []).length,
+    'Greek':            (sample.match(/[\u0370-\u03FF]/g) || []).length,
+    'Thai':             (sample.match(/[\u0E00-\u0E7F]/g) || []).length,
+  };
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (best && best[1] > 10) return best[0];
+  return null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m    = Math.floor(diff / 60000);
+  if (m < 1)    return 'just now';
+  if (m < 60)   return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)   return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+</script>
+</body>
+</html>
