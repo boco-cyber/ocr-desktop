@@ -609,6 +609,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <div class="page-grid" id="pageGrid"></div>
         <div class="flex-row" style="margin-top:12px">
           <button class="btn btn-danger btn-sm" id="cancelBtn" onclick="cancelJob()">⏹ Cancel</button>
+          <button class="btn btn-ghost btn-sm" id="retryBtn" style="display:none" onclick="retryFailed()">🔄 Retry Failed</button>
         </div>
       </div>
 
@@ -640,6 +641,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
         <div class="result-tabs" id="resultTabs"></div>
         <div id="resultText" contenteditable="true" spellcheck="false"></div>
+
+        <div id="retryBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid var(--red);border-radius:8px">
+          <div class="flex-row">
+            <span style="color:var(--red);font-size:.84rem;flex:1" id="retryBannerText"></span>
+            <button class="btn btn-danger btn-sm" onclick="retryFailed()">🔄 Retry Failed Pages</button>
+          </div>
+        </div>
 
         <hr/>
         <div class="flex-row">
@@ -1037,18 +1045,27 @@ async function pollStatus(jobId) {
     updatePageGrid(data.pages);
     if (data.rtl) { isRTL = true; }
 
+    // Show retry button if any pages failed during processing
+    if (data.failed > 0 && data.status === 'processing') {
+      document.getElementById('retryBtn').style.display = 'inline-flex';
+    }
+
     if (['done','failed','cancelled'].includes(data.status)) {
       clearInterval(pollInterval); pollInterval = null;
       document.getElementById('cancelBtn').disabled = true;
+
       if (data.status === 'done') {
+        document.getElementById('retryBtn').style.display = 'none';
         showToast('OCR complete!', 'ok');
         await showResult(jobId);
       } else if (data.status === 'cancelled') {
         showToast('Cancelled.');
         document.getElementById('progressCard').style.display = 'none';
       } else {
-        const msg = data.fatalError ? `Fatal: ${data.fatalError}` : `Failed (${data.failed} pages)`;
+        const msg = data.fatalError ? `Fatal error: ${data.fatalError}` : `${data.failed} page(s) failed`;
         showToast(msg, 'err');
+        // Show retry button on progress card
+        document.getElementById('retryBtn').style.display = 'inline-flex';
         if (data.done > 0) await showResult(jobId);
       }
       loadHistory();
@@ -1060,6 +1077,35 @@ async function cancelJob() {
   if (!currentJobId) return;
   await fetch(`/api/cancel/${currentJobId}`, { method: 'POST' });
   showToast('Cancelling…');
+}
+
+async function retryFailed() {
+  if (!currentJobId) return;
+
+  const provider      = document.getElementById('providerSelect').value;
+  const isOllama      = provider === 'ollama';
+  const model         = isOllama ? document.getElementById('ollamaModelSelect').value : document.getElementById('modelSelect').value;
+  const apiKey        = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
+  const language      = document.getElementById('langInput').value.trim();
+
+  const res  = await fetch(`/api/retry/${currentJobId}`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ provider, model, apiKey, language, ollamaBaseUrl }),
+  });
+  const data = await res.json();
+  if (!res.ok) { showToast(data.error || 'Retry failed', 'err'); return; }
+
+  showToast(`Retrying ${data.retrying} page(s)…`, 'ok');
+
+  // Reset retry UI
+  document.getElementById('retryBtn').style.display    = 'none';
+  document.getElementById('retryBanner').style.display = 'none';
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('cancelBtn').disabled         = false;
+
+  startPolling(currentJobId);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1084,6 +1130,17 @@ async function showResult(jobId) {
   lb.style.display = 'none';
   const detected = data.detectedLang || detectLangHeuristic(data.fullText);
   if (detected) { lb.textContent = detected; lb.style.display = 'inline-block'; }
+
+  // Show retry banner if any pages failed
+  const failedPages = data.pages.filter(p => p.status === 'failed');
+  const retryBanner = document.getElementById('retryBanner');
+  if (failedPages.length > 0) {
+    document.getElementById('retryBannerText').textContent =
+      `${failedPages.length} page(s) failed to OCR: pages ${failedPages.map(p => p.index + 1).join(', ')}`;
+    retryBanner.style.display = 'block';
+  } else {
+    retryBanner.style.display = 'none';
+  }
 
   buildResultTabs(data.pages);
   renderResult(-1, data.pages, data.fullText);
