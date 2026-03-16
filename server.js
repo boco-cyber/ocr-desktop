@@ -6,10 +6,11 @@ const fs      = require('fs');
 const fetch   = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 
-const anthropicProvider = require('./providers/anthropic');
-const openaiProvider    = require('./providers/openai');
-const geminiProvider    = require('./providers/gemini');
-const ollamaProvider    = require('./providers/ollama');
+const anthropicProvider  = require('./providers/anthropic');
+const openaiProvider     = require('./providers/openai');
+const geminiProvider     = require('./providers/gemini');
+const ollamaProvider     = require('./providers/ollama');
+const paddleocrProvider  = require('./providers/paddleocr');
 const imageConverter    = require('./converters/image');
 const pdfConverter      = require('./converters/pdf');
 const { buildDocx }     = require('./output/docx');
@@ -20,10 +21,11 @@ const DB_PATH  = path.join(DATA_DIR, 'ocr_jobs.json');
 
 // ── Providers ──────────────────────────────────────────────────────────────
 const PROVIDERS = {
-  anthropic: anthropicProvider,
-  openai:    openaiProvider,
-  gemini:    geminiProvider,
-  ollama:    ollamaProvider,
+  anthropic:  anthropicProvider,
+  openai:     openaiProvider,
+  gemini:     geminiProvider,
+  ollama:     ollamaProvider,
+  paddleocr:  paddleocrProvider,
 };
 
 // ── Pricing (USD per 1M tokens) ────────────────────────────────────────────
@@ -44,7 +46,8 @@ const PRICING = {
     'gemini-1.5-flash': { input: 0.075,output: 0.30 },
     'gemini-2.0-flash': { input: 0.10, output: 0.40 },
   },
-  ollama: {},  // free / local
+  ollama:     {},  // free / local
+  paddleocr:  {},  // free / local
 };
 
 // Image token estimate: base64 length → raw bytes → approx tokens
@@ -89,12 +92,84 @@ function detectRTLFromText(text) {
   return allChars > 20 && rtlChars / allChars > 0.3;
 }
 
+// ── Unicode script detector (for PaddleOCR auto-lang) ──────────────────────
+// Detects the dominant script from a sample of text output.
+// Returns { lang, paddleLang, rtl, script }
+function detectScriptFromText(text) {
+  if (!text || !text.trim()) return null;
+  const counts = {
+    arabic:     (text.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g) || []).length,
+    hebrew:     (text.match(/[\u0590-\u05FF\uFB1D-\uFB4F]/g) || []).length,
+    cjk:        (text.match(/[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F\u30A0-\u30FF\u3040-\u309F]/g) || []).length,
+    korean:     (text.match(/[\uAC00-\uD7AF\u1100-\u11FF]/g) || []).length,
+    cyrillic:   (text.match(/[\u0400-\u04FF]/g) || []).length,
+    devanagari: (text.match(/[\u0900-\u097F]/g) || []).length,
+    thai:       (text.match(/[\u0E00-\u0E7F]/g) || []).length,
+    greek:      (text.match(/[\u0370-\u03FF]/g) || []).length,
+    latin:      (text.match(/[A-Za-z]/g) || []).length,
+  };
+  const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  if (!dominant || dominant[1] < 5) return null;
+  const scriptMap = {
+    arabic:     { lang: 'Arabic',     paddleLang: 'ar',    rtl: true  },
+    hebrew:     { lang: 'Hebrew',     paddleLang: 'en',    rtl: true  },
+    cjk:        { lang: 'Chinese',    paddleLang: 'ch',    rtl: false },
+    korean:     { lang: 'Korean',     paddleLang: 'korean',rtl: false },
+    cyrillic:   { lang: 'Russian',    paddleLang: 'ru',    rtl: false },
+    devanagari: { lang: 'Hindi',      paddleLang: 'hi',    rtl: false },
+    thai:       { lang: 'Thai',       paddleLang: 'th',    rtl: false },
+    greek:      { lang: 'Greek',      paddleLang: 'el',    rtl: false },
+    latin:      { lang: 'English',    paddleLang: 'en',    rtl: false },
+  };
+  return { script: dominant[0], ...scriptMap[dominant[0]] };
+}
+
+// Run a quick PaddleOCR pass (english model) on page 0 to detect script
+const { spawn } = require('child_process');
+const PADDLE_WORKER = path.join(__dirname, 'providers', 'paddleocr_worker.py');
+const PYTHON_CMD = process.platform === 'win32' ? 'py' : 'python3';
+const PYTHON_ARGS = process.platform === 'win32' ? ['-3.11'] : [];
+
+function detectScriptFromImage(imageBase64) {
+  return new Promise((resolve) => {
+    const child = spawn(PYTHON_CMD, [...PYTHON_ARGS, PADDLE_WORKER, 'en'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.on('close', () => {
+      try {
+        const result = JSON.parse(stdout.trim());
+        const detected = detectScriptFromText(result.text || '');
+        resolve(detected);
+      } catch {
+        resolve(null);
+      }
+    });
+    child.on('error', () => resolve(null));
+    child.stdin.write(imageBase64);
+    child.stdin.end();
+  });
+}
+
+// ── OCR mode instructions ──────────────────────────────────────────────────
+const OCR_MODE_PROMPTS = {
+  book:        'This is a scanned book or article page. Preserve paragraph breaks, chapter titles, and section headings. Maintain the reading flow. Ignore page numbers and running headers.',
+  photo:       'This image may be skewed, rotated, low-contrast, or photographed at an angle. Correct for perspective distortion mentally and extract all readable text. If parts are unreadable, mark them [unreadable].',
+  table:       'This document contains tables. Extract all table data preserving rows and columns. Use | to separate columns and a blank line between rows. Preserve column headers.',
+  handwriting: 'This is handwritten text. Do your best to decipher the handwriting accurately. Preserve line breaks. If a word is unclear, write [unclear] instead of guessing.',
+  receipt:     'This is a receipt or invoice. Extract: vendor name, date, all line items with quantities and prices, subtotal, tax, and total amount. Format as a clean list.',
+  numbers:     'Extract ONLY numbers, amounts, dates, and numeric data. Ignore decorative text and labels unless they provide essential context for the numbers.',
+  noheaders:   'Skip page headers, footers, page numbers, running titles, and watermarks. Extract only the main body text.',
+};
+
 // ── OCR prompt builder ─────────────────────────────────────────────────────
-function buildOCRPrompt(language, customPrompt, pageIndex, pageCount) {
+function buildOCRPrompt(language, customPrompt, pageIndex, pageCount, ocrMode) {
   if (customPrompt) return customPrompt;
   const langHint   = language ? ` The document is written in ${language}.` : ' Auto-detect the language of the text.';
   const pageHint   = pageCount > 1 ? ` This is page ${pageIndex + 1} of ${pageCount}.` : '';
-  return `You are a professional OCR (Optical Character Recognition) system.${langHint}${pageHint} Extract ALL text from this image exactly as it appears. Preserve the original layout, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.`;
+  const modeHint   = (ocrMode && OCR_MODE_PROMPTS[ocrMode]) ? ' ' + OCR_MODE_PROMPTS[ocrMode] : '';
+  return `You are a professional OCR (Optical Character Recognition) system.${langHint}${pageHint}${modeHint} Extract ALL text from this image exactly as it appears. Preserve the original layout, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.`;
 }
 
 // ── Language detection prompt ──────────────────────────────────────────────
@@ -112,56 +187,132 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
 });
 
-// ── Upload & convert ───────────────────────────────────────────────────────
+// ── Upload & convert (async — responds immediately, converts in background) ─
 app.post('/api/upload', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const ext       = path.extname(req.file.originalname).toLowerCase();
-    const supported = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp', '.pdf'];
-    if (!supported.includes(ext)) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: `Unsupported format: ${ext}` });
-    }
-
-    const pages = ext === '.pdf'
-      ? await pdfConverter.toPages(req.file.path)
-      : await imageConverter.toPages(req.file.path, ext);
-
+  const ext       = path.extname(req.file.originalname).toLowerCase();
+  const supported = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp', '.pdf'];
+  if (!supported.includes(ext)) {
     fs.unlinkSync(req.file.path);
-
-    // Calculate total base64 size for cost estimation
-    const totalBase64Bytes = pages.reduce((sum, p) => sum + (p.imageBase64 || '').length, 0);
-
-    const jobId = uuidv4();
-    const db    = loadDB();
-    db.jobs[jobId] = {
-      id:              jobId,
-      originalName:    req.file.originalname,
-      uploadedAt:      new Date().toISOString(),
-      status:          'uploaded',
-      pageCount:       pages.length,
-      totalBase64Bytes,
-      pages:           pages.map(p => ({
-        index:       p.index,
-        imageBase64: p.imageBase64,
-        status:      'pending',
-        error:       null,
-      })),
-      ocrResults:  new Array(pages.length).fill(null),
-      config:      null,
-      fatalError:  null,
-      detectedLang: null,
-      rtl:         false,
-    };
-    saveDB(db);
-
-    res.json({ jobId, pageCount: pages.length, filename: req.file.originalname, totalBase64Bytes });
-  } catch (err) {
-    console.error('Upload error:', err);
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    res.status(500).json({ error: err.message });
+    return res.status(400).json({ error: `Unsupported format: ${ext}` });
   }
+
+  // Create job immediately so client can start polling
+  const jobId = uuidv4();
+  const db    = loadDB();
+  db.jobs[jobId] = {
+    id:              jobId,
+    originalName:    req.file.originalname,
+    uploadedAt:      new Date().toISOString(),
+    status:          'converting',   // converting → uploaded (or failed)
+    convertProgress: { done: 0, total: 0 },
+    pageCount:       0,
+    totalBase64Bytes: 0,
+    pages:           [],
+    ocrResults:      [],
+    config:          null,
+    fatalError:      null,
+    detectedLang:    null,
+    rtl:             false,
+  };
+  saveDB(db);
+
+  // Respond immediately so UI can show progress
+  res.json({ jobId, filename: req.file.originalname, status: 'converting' });
+
+  // ── Background conversion ─────────────────────────────────────────────
+  (async () => {
+    const filePath = req.file.path;
+    try {
+      const onPage = (done, total) => {
+        const db2 = loadDB();
+        if (db2.jobs[jobId]) {
+          db2.jobs[jobId].convertProgress = { done, total };
+          saveDB(db2);
+        }
+      };
+
+      const pages = ext === '.pdf'
+        ? await pdfConverter.toPages(filePath, { onPage })
+        : await imageConverter.toPages(filePath, { onPage });
+
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+      const totalBase64Bytes = pages.reduce((sum, p) => sum + (p.imageBase64 || '').length, 0);
+
+      const db2 = loadDB();
+      if (db2.jobs[jobId]) {
+        db2.jobs[jobId].status           = 'uploaded';
+        db2.jobs[jobId].pageCount        = pages.length;
+        db2.jobs[jobId].totalBase64Bytes = totalBase64Bytes;
+        db2.jobs[jobId].convertProgress  = { done: pages.length, total: pages.length };
+        db2.jobs[jobId].pages            = pages.map(p => ({
+          index:       p.index,
+          imageBase64: p.imageBase64,
+          status:      'pending',
+          error:       null,
+        }));
+        db2.jobs[jobId].ocrResults = new Array(pages.length).fill(null);
+        saveDB(db2);
+      }
+
+      // ── Auto-detect script from first page (background, non-blocking) ──
+      if (pages.length > 0) {
+        detectScriptFromImage(pages[0].imageBase64).then(detected => {
+          if (detected) {
+            const db3 = loadDB();
+            if (db3.jobs[jobId]) {
+              db3.jobs[jobId].detectedLang    = detected.lang;
+              db3.jobs[jobId].detectedPaddleLang = detected.paddleLang;
+              db3.jobs[jobId].rtl             = detected.rtl;
+              db3.jobs[jobId].scriptDetected  = true;
+              saveDB(db3);
+            }
+          } else {
+            // Could not detect — flag for UI to ask user
+            const db3 = loadDB();
+            if (db3.jobs[jobId]) {
+              db3.jobs[jobId].scriptDetected = false;
+              saveDB(db3);
+            }
+          }
+        }).catch(() => {
+          const db3 = loadDB();
+          if (db3.jobs[jobId]) { db3.jobs[jobId].scriptDetected = false; saveDB(db3); }
+        });
+      }
+    } catch (err) {
+      console.error('Conversion error:', err);
+      if (fs.existsSync(filePath)) try { fs.unlinkSync(filePath); } catch {}
+      const db2 = loadDB();
+      if (db2.jobs[jobId]) {
+        db2.jobs[jobId].status     = 'failed';
+        db2.jobs[jobId].fatalError = `Conversion failed: ${err.message}`;
+        saveDB(db2);
+      }
+    }
+  })();
+});
+
+// ── Upload/conversion progress polling ────────────────────────────────────
+app.get('/api/upload-status/:jobId', (req, res) => {
+  const db  = loadDB();
+  const job = db.jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+
+  res.json({
+    status:            job.status,           // 'converting' | 'uploaded' | 'failed'
+    done:              job.convertProgress?.done  || 0,
+    total:             job.convertProgress?.total || 0,
+    pageCount:         job.pageCount,
+    totalBase64Bytes:  job.totalBase64Bytes || 0,
+    fatalError:        job.fatalError || null,
+    detectedLang:      job.detectedLang      || null,
+    detectedPaddleLang: job.detectedPaddleLang || null,
+    rtl:               job.rtl               || false,
+    scriptDetected:    job.scriptDetected,   // true=detected, false=unknown, undefined=still running
+  });
 });
 
 // ── Auto-detect language ───────────────────────────────────────────────────
@@ -171,6 +322,11 @@ app.post('/api/detect-language', async (req, res) => {
   const job = db.jobs[jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
   if (!PROVIDERS[provider]) return res.status(400).json({ error: 'Invalid provider' });
+
+  // PaddleOCR can't answer language detection prompts — skip
+  if (provider === 'paddleocr') {
+    return res.json({ language: null, rtl: false, skipped: true });
+  }
 
   // Use the first page image for detection
   const firstPage = job.pages[0];
@@ -216,7 +372,7 @@ app.post('/api/estimate', (req, res) => {
   const job = db.jobs[jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
 
-  if (provider === 'ollama') {
+  if (provider === 'ollama' || provider === 'paddleocr') {
     return res.json({ provider, model, free: true, label: 'Free (local)' });
   }
 
@@ -262,7 +418,7 @@ app.post('/api/estimate', (req, res) => {
 
 // ── Start OCR (with chunked parallel processing) ───────────────────────────
 app.post('/api/ocr', async (req, res) => {
-  const { jobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl, concurrency } = req.body;
+  const { jobId, provider, model, apiKey, language, ocrMode, customPrompt, ollamaBaseUrl, concurrency, pageFrom, pageTo } = req.body;
 
   if (!jobId) return res.status(400).json({ error: 'jobId required' });
   if (!provider || !PROVIDERS[provider]) return res.status(400).json({ error: 'Invalid provider' });
@@ -270,27 +426,38 @@ app.post('/api/ocr', async (req, res) => {
   const db  = loadDB();
   const job = db.jobs[jobId];
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status === 'converting') return res.status(400).json({ error: 'File is still being split into pages — please wait' });
   if (job.status === 'processing') return res.status(400).json({ error: 'Already processing' });
 
   // Use detected language if none provided
+  // For PaddleOCR, prefer detectedPaddleLang (pre-mapped ISO code like 'ar') over full name
   const effectiveLang = language || job.detectedLang || null;
+  const effectivePaddleLang = provider === 'paddleocr'
+    ? (language || job.detectedPaddleLang || job.detectedLang || 'en')
+    : effectiveLang;
 
   // Concurrency: how many pages to process in parallel
   // Ollama = 1 (single local GPU), cloud APIs = up to 5
+  const isLocal = provider === 'ollama' || provider === 'paddleocr';
   const maxConcurrent = Math.min(
-    Math.max(1, parseInt(concurrency) || (provider === 'ollama' ? 1 : 3)),
-    provider === 'ollama' ? 2 : 5
+    Math.max(1, parseInt(concurrency) || (isLocal ? 1 : 3)),
+    isLocal ? 2 : 5
   );
 
+  // Validate and normalise page range
+  const rangeFrom = (Number.isInteger(pageFrom) && pageFrom >= 0) ? pageFrom : 0;
+  const rangeTo   = (Number.isInteger(pageTo)   && pageTo   >= 0) ? Math.min(pageTo, job.pageCount - 1) : job.pageCount - 1;
+
   job.status = 'processing';
-  job.config = { provider, model, language: effectiveLang, customPrompt, ollamaBaseUrl, concurrency: maxConcurrent };
+  job.config = { provider, model, language: effectiveLang, ocrMode: ocrMode || 'standard', customPrompt, ollamaBaseUrl, concurrency: maxConcurrent, pageFrom: rangeFrom, pageTo: rangeTo };
   saveDB(db);
 
   res.json({ jobId, pageCount: job.pageCount, concurrency: maxConcurrent });
 
   // ── Chunked parallel OCR loop ──────────────────────────────────────────
   (async () => {
-    const indices = Array.from({ length: job.pageCount }, (_, i) => i);
+    const indices = Array.from({ length: job.pageCount }, (_, i) => i)
+      .filter(i => i >= rangeFrom && i <= rangeTo);
 
     // Process in chunks of maxConcurrent
     for (let chunkStart = 0; chunkStart < indices.length; chunkStart += maxConcurrent) {
@@ -315,7 +482,7 @@ app.post('/api/ocr', async (req, res) => {
         const dbNow = loadDB();
         if (dbNow.jobs[jobId]?.status === 'cancelled') return;
 
-        const prompt      = buildOCRPrompt(effectiveLang, customPrompt, i, job.pageCount);
+        const prompt      = buildOCRPrompt(effectiveLang, customPrompt, i, job.pageCount, ocrMode);
         const imageBase64 = job.pages[i].imageBase64;
 
         try {
@@ -325,6 +492,7 @@ app.post('/api/ocr', async (req, res) => {
             imageBase64,
             prompt,
             baseUrl: ollamaBaseUrl,
+            lang: provider === 'paddleocr' ? effectivePaddleLang : effectiveLang,
           });
 
           const db2 = loadDB();
@@ -444,6 +612,10 @@ app.post('/api/retry/:jobId', async (req, res) => {
 
   const cfg        = job.config;
   const useLang    = language || cfg.language || job.detectedLang;
+  const useProvider = cfg.provider || provider;
+  const usePaddleLang = useProvider === 'paddleocr'
+    ? (language || job.detectedPaddleLang || job.detectedLang || 'en')
+    : useLang;
   const concurrent = cfg.concurrency || (provider === 'ollama' ? 1 : 3);
 
   (async () => {
@@ -453,7 +625,7 @@ app.post('/api/retry/:jobId', async (req, res) => {
       if (dbChk.jobs[job.id]?.status === 'cancelled') break;
 
       await Promise.all(chunk.map(async (page) => {
-        const prompt = buildOCRPrompt(useLang, cfg.customPrompt, page.index, job.pageCount);
+        const prompt = buildOCRPrompt(useLang, cfg.customPrompt, page.index, job.pageCount, cfg.ocrMode);
         try {
           const text = await PROVIDERS[cfg.provider || provider].ocr({
             apiKey:      apiKey || cfg.apiKey,
@@ -461,6 +633,7 @@ app.post('/api/retry/:jobId', async (req, res) => {
             imageBase64: job.pages[page.index].imageBase64,
             prompt,
             baseUrl:     cfg.ollamaBaseUrl || ollamaBaseUrl,
+            lang:        useProvider === 'paddleocr' ? usePaddleLang : useLang,
           });
           const db2 = loadDB();
           db2.jobs[job.id].pages[page.index].status = 'done';
@@ -502,7 +675,7 @@ app.get('/api/download/:jobId/docx', async (req, res) => {
     const job = db.jobs[req.params.jobId];
     if (!job) return res.status(404).json({ error: 'Not found' });
     const pages  = job.ocrResults.map((t, i) => ({ index: i, text: t || '' }));
-    const buffer = await buildDocx(job.originalName, pages);
+    const buffer = await buildDocx(job.originalName, pages, { rtl: job.rtl || false });
     const base   = path.basename(job.originalName, path.extname(job.originalName));
     res.setHeader('Content-Disposition', `attachment; filename="${base}_ocr.docx"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -510,6 +683,33 @@ app.get('/api/download/:jobId/docx', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Single page image (for preview pane) ─────────────────────────────────
+app.get('/api/page-image/:jobId/:pageIndex', (req, res) => {
+  const db  = loadDB();
+  const job = db.jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const idx  = parseInt(req.params.pageIndex);
+  const page = (job.pages || []).find(p => p.index === idx);
+  if (!page) return res.status(404).json({ error: 'Page not found' });
+  // Return as actual PNG image so browser can cache it efficiently
+  const buf = Buffer.from(page.imageBase64 || '', 'base64');
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.send(buf);
+});
+
+// ── Page images list (thumbnails — returns URLs only, no base64) ──────────
+app.get('/api/page-images/:jobId', (req, res) => {
+  const db  = loadDB();
+  const job = db.jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  const pages = (job.pages || []).map(p => ({
+    index: p.index,
+    url:   `/api/page-image/${req.params.jobId}/${p.index}`,
+  }));
+  res.json({ pages });
 });
 
 // ── Job management ────────────────────────────────────────────────────────

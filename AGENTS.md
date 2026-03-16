@@ -232,6 +232,47 @@ Single HTML file, vanilla JS, no framework or bundler.
 
 ---
 
+## Recent Feature Additions
+
+### Clipboard Paste (Ctrl+V)
+A `paste` event listener on `document` intercepts clipboard image data. When an image item is detected, it is extracted as a `File` and passed to the existing `uploadFile(file)` function. The drop zone shows a "or paste a screenshot (Ctrl+V)" hint.
+
+### In-Page Search (Ctrl+F)
+A collapsible search bar (`#searchBar`) sits above the thumbnail strip inside `resultCard`. It is hidden by default and revealed by `openSearchBar()`. The bar contains a text input (`#searchInput`), a "× Clear" button that calls `closeSearchBar()`, a result count label (`#searchCount`), and Prev/Next buttons.
+
+- `searchInResults()` — iterates `resultPages`, counts matches per page, populates `searchMatches`, navigates to the first match via `showReviewPage()`, and highlights the match position in `#pageEditor` using `setSelectionRange`.
+- `searchNext()` / `searchPrev()` — cycle through `searchMatches`, calling `_navigateToSearchMatch()` for each step.
+
+### Keyboard Shortcuts
+Added to a new `keydown` listener on `document` (the existing file had none):
+
+| Shortcut | Action | Condition |
+|---|---|---|
+| `Ctrl+F` | Open search bar | resultCard visible |
+| `Ctrl+S` | `downloadSelected()` | resultCard visible |
+| `Ctrl+Shift+C` | `copyAll()` | resultCard visible |
+| `Escape` | Close search bar | search bar open |
+| `ArrowLeft` | `navigatePage(-1)` | resultCard visible, focus not in input/textarea |
+| `ArrowRight` | `navigatePage(1)` | resultCard visible, focus not in input/textarea |
+
+### Preview Zoom (Buttons + Mousewheel)
+- State variable `previewZoom = 1.0` tracks current zoom level.
+- "+" and "−" buttons in `.preview-pane-header` call `zoomPreview(±0.25)`.
+- `zoomPreview(delta)` clamps zoom to 0.5–3.0, sets `previewImg.style.transform = scale(...)` with `transformOrigin = 'top left'`, and updates `#previewZoomLabel`.
+- A `wheel` event listener on `#previewImgWrap` (added on `DOMContentLoaded`) also calls `zoomPreview` when the result card is visible.
+
+### Page Range Selection
+- A "⚙ Range" button in `#fileCard` toggles `#pageRangePanel` (a flex row with "From page" / "To page" number inputs and a Reset button).
+- `startOCR()` reads `#pageRangeFrom` and `#pageRangeTo`, converts to 0-based indices, and sends `pageFrom` / `pageTo` in the JSON body to `POST /api/ocr`.
+- `server.js` reads and validates `pageFrom` / `pageTo`, stores them in `job.config`, and filters the page indices array: `indices.filter(i => i >= rangeFrom && i <= rangeTo)`.
+
+### DOCX RTL Support
+- `buildDocx` in `output/docx.js` now accepts a third options argument `{ rtl = false }`.
+- When `rtl=true`: each body `Paragraph` gets `bidirectional: true`, and the font is `'Arial'` instead of `'Calibri'` for better Arabic/Hebrew rendering.
+- `GET /api/download/:jobId/docx` in `server.js` passes `{ rtl: job.rtl || false }` to `buildDocx`.
+
+---
+
 ## electron-builder Config Notes
 
 - Target: `portable` Windows x64 (single .exe, no installer)

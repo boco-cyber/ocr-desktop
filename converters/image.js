@@ -10,7 +10,11 @@ const fs    = require('fs');
 
 const MAX_DIM = 2000; // pixels — keeps base64 under ~3MB for most images
 
-async function toPages(filePath) {
+/**
+ * @param {string} filePath
+ * @param {function} [onPage] - called after each page: onPage(index, total)
+ */
+async function toPages(filePath, { onPage } = {}) {
   const meta = await sharp(filePath).metadata();
 
   // Handle multi-frame TIFFs
@@ -36,6 +40,8 @@ async function toPages(filePath) {
       width:       meta.width,
       height:      meta.height,
     });
+
+    if (onPage) onPage(pages.length, frameCount);
   }
 
   return pages;

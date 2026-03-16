@@ -5,8 +5,9 @@
  */
 const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx');
 
-async function buildDocx(jobName, pages) {
+async function buildDocx(jobName, pages, { rtl = false } = {}) {
   const children = [];
+  const bodyFont = rtl ? 'Arial' : 'Calibri';
 
   // Document title
   children.push(new Paragraph({
@@ -27,7 +28,8 @@ async function buildDocx(jobName, pages) {
     const lines = (page.text || '').split('\n');
     for (const line of lines) {
       children.push(new Paragraph({
-        children: [new TextRun({ text: line, size: 24, font: 'Calibri' })],
+        ...(rtl ? { bidirectional: true } : {}),
+        children: [new TextRun({ text: line, size: 24, font: bodyFont })],
       }));
     }
 

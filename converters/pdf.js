@@ -9,6 +9,11 @@
  *
  * Output: Array of { index, imageBase64, width, height }
  * Each element represents one PDF page as a PNG image.
+ *
+ * @param {string} pdfPath
+ * @param {object} [opts]
+ * @param {function} [opts.onPage] - called after each page: onPage(pagesDone, totalPages)
+ *   totalPages may be 0 if unknown (pdf2pic doesn't report total upfront)
  */
 const path = require('path');
 const fs   = require('fs');
@@ -16,16 +21,16 @@ const sharp = require('sharp');
 
 const MAX_DIM = 2000;
 
-async function toPages(pdfPath) {
+async function toPages(pdfPath, { onPage } = {}) {
   try {
-    return await convertWithPdf2pic(pdfPath);
+    return await convertWithPdf2pic(pdfPath, { onPage });
   } catch (err) {
     console.warn('pdf2pic unavailable, falling back to pdf-to-img:', err.message);
-    return await convertWithPdfToImg(pdfPath);
+    return await convertWithPdfToImg(pdfPath, { onPage });
   }
 }
 
-async function convertWithPdf2pic(pdfPath) {
+async function convertWithPdf2pic(pdfPath, { onPage } = {}) {
   const { fromPath } = require('pdf2pic');
   const outputDir = path.dirname(pdfPath);
 
@@ -39,25 +44,29 @@ async function convertWithPdf2pic(pdfPath) {
   });
 
   const result = await converter.bulk(-1, { responseType: 'base64' });
+  const total  = result.length;
 
-  return result.map((r, i) => ({
-    index:       i,
-    imageBase64: r.base64,
-    width:       r.width  || MAX_DIM,
-    height:      r.height || MAX_DIM,
-  }));
+  return result.map((r, i) => {
+    if (onPage) onPage(i + 1, total);
+    return {
+      index:       i,
+      imageBase64: r.base64,
+      width:       r.width  || MAX_DIM,
+      height:      r.height || MAX_DIM,
+    };
+  });
 }
 
-async function convertWithPdfToImg(pdfPath) {
+async function convertWithPdfToImg(pdfPath, { onPage } = {}) {
   const { pdf } = require('pdf-to-img');
 
   const pages = [];
   const doc   = await pdf(pdfPath, { scale: 2.0 });
+  const total = doc.length || 0; // pdf-to-img exposes .length when known
 
   let index = 0;
   for await (const pageImage of doc) {
     // pageImage is a Buffer (PNG)
-    // Resize if too large
     const meta = await sharp(pageImage).metadata();
     const needsResize = (meta.width || 0) > MAX_DIM || (meta.height || 0) > MAX_DIM;
 
@@ -76,6 +85,7 @@ async function convertWithPdfToImg(pdfPath) {
       height:      meta.height || MAX_DIM,
     });
     index++;
+    if (onPage) onPage(index, total);
   }
 
   return pages;

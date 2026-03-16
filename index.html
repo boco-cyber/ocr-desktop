@@ -238,7 +238,181 @@ textarea { resize: vertical; min-height: 70px; }
 .page-dot.processing  { background: var(--yellow); animation: pulse 1s infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
 
-/* ═══════════════ RESULT ═══════════════ */
+/* ═══════════════ PREVIEW + EDITOR ═══════════════ */
+.review-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+}
+/* thumbnail strip */
+.thumb-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  scrollbar-width: thin;
+}
+.thumb-strip::-webkit-scrollbar { height: 4px; }
+.thumb-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.thumb-item {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s;
+}
+.thumb-item:hover { opacity: .85; }
+.thumb-item.active { opacity: 1; }
+.thumb-item img {
+  width: 52px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 2px solid transparent;
+}
+.thumb-item.active img { border-color: var(--accent); }
+.thumb-item.failed img { border-color: var(--red); }
+.thumb-num {
+  font-size: .6rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.thumb-item.active .thumb-num { color: var(--accent); }
+.thumb-item.failed .thumb-num { color: var(--red); }
+.thumb-item.processing img {
+  border-color: var(--yellow);
+  animation: thumb-pulse 1s ease-in-out infinite;
+}
+.thumb-item.processing .thumb-num { color: var(--yellow); }
+@keyframes thumb-pulse {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+/* side-by-side panes */
+.review-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+@media (max-width: 860px) {
+  .review-panes { grid-template-columns: 1fr; }
+}
+.preview-pane {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 380px;
+}
+.preview-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.preview-img-wrap {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 10px;
+  background: #0a0c12;
+}
+.preview-img-wrap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.5);
+}
+.editor-pane {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  min-height: 380px;
+}
+.editor-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  gap: 8px;
+}
+.editor-pane-header .edit-badge {
+  background: rgba(52,211,153,.12);
+  border: 1px solid var(--green);
+  color: var(--green);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: .65rem;
+  letter-spacing: .05em;
+}
+#pageEditor {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: .88rem;
+  line-height: 1.75;
+  padding: 14px;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-y: auto;
+}
+#pageEditor[dir="rtl"] { text-align: right; }
+/* nav arrows */
+.page-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 10px 0 2px;
+}
+.page-nav button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+  font-size: .82rem;
+  transition: background .15s;
+}
+.page-nav button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+.page-nav button:disabled { opacity: .3; cursor: default; }
+.page-nav .page-counter { font-size: .82rem; color: var(--muted); min-width: 80px; text-align: center; }
+
+/* ═══════════════ RESULT (legacy kept for all-pages text) ═══════════════ */
 .result-tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
 .result-tabs button {
   background: var(--bg);
@@ -442,13 +616,55 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   max-width: 320px;
 }
 #toast.show { opacity: 1; transform: translateY(0); }
-#toast.ok  { border-color: var(--green); color: var(--green); }
-#toast.err { border-color: var(--red);   color: var(--red); }
+#toast.ok   { border-color: var(--green);  color: var(--green); }
+#toast.err  { border-color: var(--red);    color: var(--red); }
+#toast.warn { border-color: var(--yellow); color: var(--yellow); }
 
 /* scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ═══════════════ SEARCH BAR ═══════════════ */
+.search-bar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 8px;
+  flex-wrap: wrap;
+}
+.search-bar input[type="text"] {
+  width: 200px;
+  padding: 5px 9px;
+  font-size: .82rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.search-bar input[type="text"]:focus { border-color: var(--accent); }
+.search-bar #searchCount { font-size: .78rem; color: var(--muted); min-width: 70px; }
+
+/* ═══════════════ PAGE RANGE PANEL ═══════════════ */
+#pageRangePanel {
+  display: none;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#pageRangePanel label { margin-bottom: 0; white-space: nowrap; }
+#pageRangePanel input[type="number"] {
+  width: 70px;
+  padding: 5px 8px;
+  font-size: .82rem;
+}
 </style>
 </head>
 <body>
@@ -480,6 +696,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           <option value="openai">OpenAI (GPT-4o)</option>
           <option value="gemini">Google Gemini</option>
           <option value="ollama">Ollama (Local / Free)</option>
+          <option value="paddleocr">PaddleOCR (Local / Free)</option>
         </select>
       </div>
 
@@ -492,6 +709,16 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <div class="form-group">
           <label>API Key</label>
           <input type="password" id="apiKey" placeholder="Paste key or save in Settings…" autocomplete="off"/>
+        </div>
+      </div>
+
+      <!-- PaddleOCR section -->
+      <div id="paddleocrSection" style="display:none">
+        <div class="form-group">
+          <p style="font-size:.75rem;color:var(--text-muted);margin:0">
+            Uses locally-installed PaddleOCR via Python 3.11.<br>
+            No API key required. Supports 80+ languages.
+          </p>
         </div>
       </div>
 
@@ -517,7 +744,28 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
       <h3>Document</h3>
       <div class="form-group">
         <label>Document Language</label>
-        <input type="text" id="langInput" placeholder="Leave blank to auto-detect…"/>
+        <div class="refresh-row">
+          <select id="langSelect" onchange="onLangSelectChange()" style="flex:1">
+            <option value="">Auto-detect</option>
+          </select>
+          <button onclick="onProviderChange()" title="Reload language list">↺</button>
+        </div>
+        <!-- Hidden text fallback used by server logic -->
+        <input type="hidden" id="langInput"/>
+      </div>
+      <div class="form-group">
+        <label>OCR Mode</label>
+        <select id="ocrModeSelect" onchange="onOcrModeChange()">
+          <option value="standard">Standard — typed text</option>
+          <option value="book">Book / article scan</option>
+          <option value="photo">Photo fix — skewed / low quality</option>
+          <option value="table">Tables &amp; spreadsheets</option>
+          <option value="handwriting">Handwriting</option>
+          <option value="receipt">Receipt / invoice</option>
+          <option value="numbers">Numbers &amp; amounts only</option>
+          <option value="noheaders">Skip headers &amp; footers</option>
+          <option value="custom">Custom instructions ↓</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Parallel Pages (chunks)</label>
@@ -533,12 +781,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
     <div class="sidebar-section">
       <h3>Instructions</h3>
       <div class="form-group">
-        <label>Special Directions <span style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
-        <textarea id="customPrompt" placeholder="e.g. This is a handwritten receipt. Focus on numbers and totals. Ignore stamps and watermarks." style="min-height:90px"></textarea>
+        <label>Special Directions <span style="font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0">(optional — overrides mode)</span></label>
+        <textarea id="customPrompt" placeholder="e.g. This is a handwritten receipt. Focus on numbers and totals. Ignore stamps and watermarks." style="min-height:70px"></textarea>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
           <button class="preset-btn" onclick="setPreset('table')">Table</button>
           <button class="preset-btn" onclick="setPreset('handwriting')">Handwriting</button>
-          <button class="preset-btn" onclick="setPreset('numbers')">Numbers only</button>
+          <button class="preset-btn" onclick="setPreset('photo')">Photo fix</button>
+          <button class="preset-btn" onclick="setPreset('numbers')">Numbers</button>
+          <button class="preset-btn" onclick="setPreset('receipt')">Receipt</button>
           <button class="preset-btn" onclick="setPreset('noheaders')">Skip headers</button>
           <button class="preset-btn" onclick="setPreset('')">Clear</button>
         </div>
@@ -569,8 +819,21 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           <span class="format-tag">.webp</span>
           <span class="format-tag">.pdf</span>
         </div>
+        <div class="hint" style="margin-top:4px">or paste a screenshot (Ctrl+V)</div>
       </div>
       <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp,.pdf" onchange="handleFileSelect(event)"/>
+
+      <!-- Splitting / converting progress -->
+      <div id="convertCard" style="display:none" class="card">
+        <div class="card-title">✂️ Splitting pages…</div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="convertBar" style="transition:width .3s ease"></div>
+        </div>
+        <div class="progress-stats">
+          <span id="convertText">Preparing…</span>
+          <span id="convertPct">0%</span>
+        </div>
+      </div>
 
       <!-- File info + start -->
       <div id="fileCard" style="display:none" class="card">
@@ -579,6 +842,18 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           <span class="text-muted" id="fileStats"></span>
           <span id="detectedLangBadge" style="display:none;background:rgba(91,114,255,.15);border:1px solid var(--accent);color:var(--accent);border-radius:6px;padding:2px 10px;font-size:.78rem;font-weight:600"></span>
           <span id="rtlDetectBadge" style="display:none;background:rgba(251,191,36,.12);border:1px solid var(--yellow);color:var(--yellow);border-radius:6px;padding:2px 10px;font-size:.78rem;font-weight:600">RTL</span>
+        </div>
+
+        <!-- Page Range -->
+        <div style="margin-bottom:8px">
+          <button class="btn btn-ghost btn-sm" style="font-size:.75rem;padding:3px 10px" onclick="document.getElementById('pageRangePanel').style.display=document.getElementById('pageRangePanel').style.display==='flex'?'none':'flex'">⚙ Range</button>
+          <div id="pageRangePanel" class="flex-row">
+            <label>From page</label>
+            <input type="number" id="pageRangeFrom" min="1" value="1" style="width:70px"/>
+            <label>To page</label>
+            <input type="number" id="pageRangeTo" min="1" value="" placeholder="last"/>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pageRangeFrom').value=1;document.getElementById('pageRangeTo').value=''">Reset</button>
+          </div>
         </div>
 
         <!-- Cost estimate badge -->
@@ -613,7 +888,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         </div>
       </div>
 
-      <!-- Result -->
+      <!-- Result / Review -->
       <div id="resultCard" style="display:none" class="card">
         <div class="card-title">
           ✅ OCR Result
@@ -622,26 +897,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           <span id="langBadge" class="lang-badge"  style="display:none"></span>
         </div>
 
-        <div class="fmt-bar">
-          <label>Font:</label>
-          <select id="fontSelect" onchange="applyFormat()">
-            <option value="'Courier New',monospace">Monospace</option>
-            <option value="'Segoe UI',sans-serif">Sans-serif</option>
-            <option value="'Georgia',serif">Serif</option>
-            <option value="'Amiri','Arial',serif">Amiri (Arabic)</option>
-            <option value="'Noto Sans','Arial',sans-serif">Noto Sans (CJK)</option>
-          </select>
-          <label>Size:</label>
-          <select id="fontSizeSelect" onchange="applyFormat()">
-            <option value="11px">Small</option>
-            <option value="13px" selected>Medium</option>
-            <option value="16px">Large</option>
-          </select>
-        </div>
-
-        <div class="result-tabs" id="resultTabs"></div>
-        <div id="resultText" contenteditable="true" spellcheck="false"></div>
-
+        <!-- Retry banner -->
         <div id="retryBanner" style="display:none;margin-bottom:12px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid var(--red);border-radius:8px">
           <div class="flex-row">
             <span style="color:var(--red);font-size:.84rem;flex:1" id="retryBannerText"></span>
@@ -649,8 +905,73 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           </div>
         </div>
 
-        <hr/>
-        <div class="flex-row">
+        <!-- Search bar (hidden by default, Ctrl+F to open) -->
+        <div class="search-bar" id="searchBar">
+          <input type="text" id="searchInput" placeholder="Search in results…" oninput="searchInResults()" onkeydown="if(event.key==='Enter'){event.shiftKey?searchPrev():searchNext();}"/>
+          <button class="btn btn-ghost btn-sm" onclick="closeSearchBar()">× Clear</button>
+          <span id="searchCount"></span>
+          <button class="btn btn-ghost btn-sm" onclick="searchPrev()">◀ Prev</button>
+          <button class="btn btn-ghost btn-sm" onclick="searchNext()">Next ▶</button>
+        </div>
+
+        <!-- Thumbnail strip -->
+        <div class="thumb-strip" id="thumbStrip"></div>
+
+        <!-- Side-by-side preview + editor -->
+        <div class="review-panes">
+          <!-- Left: image preview -->
+          <div class="preview-pane">
+            <div class="preview-pane-header">
+              <span>📄 Page Preview</span>
+              <span id="previewZoomLabel" style="font-size:.7rem;color:var(--muted)">100%</span>
+              <div style="display:flex;gap:4px;margin-left:8px">
+                <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:.85rem" onclick="zoomPreview(-0.25)" title="Zoom out">−</button>
+                <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:.85rem" onclick="zoomPreview(0.25)"  title="Zoom in">+</button>
+              </div>
+            </div>
+            <div class="preview-img-wrap" id="previewImgWrap">
+              <img id="previewImg" src="" alt="Page preview" style="display:none"/>
+              <span id="previewPlaceholder" style="color:var(--muted);font-size:.82rem;align-self:center">Select a page above</span>
+            </div>
+          </div>
+
+          <!-- Right: editable OCR text -->
+          <div class="editor-pane">
+            <div class="editor-pane-header">
+              <span>📝 OCR Text</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span class="edit-badge">EDITABLE</span>
+                <select id="fontSelect" onchange="applyFormat()" style="width:auto;padding:3px 6px;font-size:.7rem;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                  <option value="'Courier New',monospace">Mono</option>
+                  <option value="'Segoe UI',sans-serif">Sans</option>
+                  <option value="'Georgia',serif">Serif</option>
+                  <option value="'Amiri','Arial',serif">Amiri</option>
+                  <option value="'Noto Sans','Arial',sans-serif">Noto</option>
+                </select>
+                <select id="fontSizeSelect" onchange="applyFormat()" style="width:auto;padding:3px 6px;font-size:.7rem;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                  <option value="11px">S</option>
+                  <option value="13px" selected>M</option>
+                  <option value="16px">L</option>
+                  <option value="20px">XL</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:.7rem" onclick="copyCurrentPage()">⎘ Copy</button>
+              </div>
+            </div>
+            <textarea id="pageEditor" spellcheck="false" placeholder="OCR text will appear here…" oninput="onEditorChange()"></textarea>
+          </div>
+        </div>
+
+        <!-- Page navigation -->
+        <div class="page-nav">
+          <button id="prevPageBtn" onclick="navigatePage(-1)" disabled>◀ Prev</button>
+          <span class="page-counter" id="pageCounter">— / —</span>
+          <button id="nextPageBtn" onclick="navigatePage(1)" disabled>Next ▶</button>
+        </div>
+
+        <hr style="margin:12px 0"/>
+
+        <!-- Bottom toolbar -->
+        <div class="flex-row" style="flex-wrap:wrap;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="copyAll()">⎘ Copy All</button>
           <span style="color:var(--muted);font-size:.8rem">Export:</span>
           <select id="exportFormat" style="width:auto;padding:5px 10px;font-size:.82rem">
@@ -658,6 +979,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
             <option value="docx">Word Document (.docx)</option>
           </select>
           <button class="btn btn-primary btn-sm" onclick="downloadSelected()">⬇ Download</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearJob()">✕ New</button>
         </div>
       </div>
 
@@ -742,6 +1064,95 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 // ═══════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════
+// ── Language lists per provider ─────────────────────────────────────────────
+// AI providers can OCR any language — show the most common ones
+const AI_LANGUAGES = [
+  { label: 'Auto-detect',          value: '' },
+  { label: 'Arabic (العربية)',      value: 'Arabic' },
+  { label: 'Bengali (বাংলা)',        value: 'Bengali' },
+  { label: 'Bulgarian (Български)', value: 'Bulgarian' },
+  { label: 'Chinese Simplified',   value: 'Chinese' },
+  { label: 'Chinese Traditional',  value: 'Chinese Traditional' },
+  { label: 'Croatian (Hrvatski)',   value: 'Croatian' },
+  { label: 'Czech (Čeština)',       value: 'Czech' },
+  { label: 'Danish (Dansk)',        value: 'Danish' },
+  { label: 'Dutch (Nederlands)',    value: 'Dutch' },
+  { label: 'English',              value: 'English' },
+  { label: 'Finnish (Suomi)',       value: 'Finnish' },
+  { label: 'French (Français)',     value: 'French' },
+  { label: 'German (Deutsch)',      value: 'German' },
+  { label: 'Greek (Ελληνικά)',      value: 'Greek' },
+  { label: 'Hebrew (עברית)',        value: 'Hebrew' },
+  { label: 'Hindi (हिन्दी)',          value: 'Hindi' },
+  { label: 'Hungarian (Magyar)',    value: 'Hungarian' },
+  { label: 'Indonesian',           value: 'Indonesian' },
+  { label: 'Italian (Italiano)',    value: 'Italian' },
+  { label: 'Japanese (日本語)',      value: 'Japanese' },
+  { label: 'Korean (한국어)',        value: 'Korean' },
+  { label: 'Malay (Melayu)',        value: 'Malay' },
+  { label: 'Norwegian (Norsk)',     value: 'Norwegian' },
+  { label: 'Persian (فارسی)',       value: 'Persian' },
+  { label: 'Polish (Polski)',       value: 'Polish' },
+  { label: 'Portuguese (Português)',value: 'Portuguese' },
+  { label: 'Romanian (Română)',     value: 'Romanian' },
+  { label: 'Russian (Русский)',     value: 'Russian' },
+  { label: 'Slovak (Slovenčina)',   value: 'Slovak' },
+  { label: 'Spanish (Español)',     value: 'Spanish' },
+  { label: 'Swedish (Svenska)',     value: 'Swedish' },
+  { label: 'Tamil (தமிழ்)',          value: 'Tamil' },
+  { label: 'Telugu (తెలుగు)',        value: 'Telugu' },
+  { label: 'Thai (ภาษาไทย)',         value: 'Thai' },
+  { label: 'Turkish (Türkçe)',      value: 'Turkish' },
+  { label: 'Ukrainian (Українська)',value: 'Ukrainian' },
+  { label: 'Urdu (اردو)',           value: 'Urdu' },
+  { label: 'Vietnamese (Tiếng Việt)',value: 'Vietnamese' },
+];
+
+// PaddleOCR v3 supported lang codes + display names
+const PADDLE_LANGUAGES = [
+  { label: 'Auto-detect',              value: '' },
+  { label: 'Arabic (ar)',              value: 'ar' },
+  { label: 'Belarusian (be)',          value: 'be' },
+  { label: 'Bengali (bn)',             value: 'bn' },
+  { label: 'Bulgarian (bg)',           value: 'bg' },
+  { label: 'Chinese Simplified (ch)', value: 'ch' },
+  { label: 'Chinese Traditional',     value: 'chinese_cht' },
+  { label: 'Croatian (hr)',            value: 'hr' },
+  { label: 'Czech (cs)',               value: 'cs' },
+  { label: 'Danish (da)',              value: 'da' },
+  { label: 'Dutch (nl)',               value: 'nl' },
+  { label: 'English (en)',             value: 'en' },
+  { label: 'Finnish (fi)',             value: 'fi' },
+  { label: 'French (fr)',              value: 'fr' },
+  { label: 'German (de)',              value: 'de' },
+  { label: 'Greek (el)',               value: 'el' },
+  { label: 'Hindi (hi)',               value: 'hi' },
+  { label: 'Hungarian (hu)',           value: 'hu' },
+  { label: 'Indonesian (id)',          value: 'id' },
+  { label: 'Italian (it)',             value: 'it' },
+  { label: 'Japanese (japan)',         value: 'japan' },
+  { label: 'Korean (korean)',          value: 'korean' },
+  { label: 'Malay (ms)',               value: 'ms' },
+  { label: 'Norwegian (no)',           value: 'no' },
+  { label: 'Persian / Farsi (fa)',     value: 'fa' },
+  { label: 'Polish (pl)',              value: 'pl' },
+  { label: 'Portuguese (pt)',          value: 'pt' },
+  { label: 'Romanian (ro)',            value: 'ro' },
+  { label: 'Russian (ru)',             value: 'ru' },
+  { label: 'Pashto (ps)',              value: 'ps' },
+  { label: 'Slovak (sk)',              value: 'sk' },
+  { label: 'Spanish (es)',             value: 'es' },
+  { label: 'Swedish (sv)',             value: 'sv' },
+  { label: 'Tamil (ta)',               value: 'ta' },
+  { label: 'Telugu (te)',              value: 'te' },
+  { label: 'Thai (th)',                value: 'th' },
+  { label: 'Turkish (tr)',             value: 'tr' },
+  { label: 'Ukrainian (uk)',           value: 'uk' },
+  { label: 'Urdu (ur)',                value: 'ur' },
+  { label: 'Uyghur (ug)',              value: 'ug' },
+  { label: 'Vietnamese (vi)',          value: 'vi' },
+];
+
 const MODELS = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-5', 'claude-haiku-4-5-20251001'],
   openai:    ['gpt-4o', 'gpt-4o-mini'],
@@ -772,8 +1183,10 @@ function loadFromStorage() {
   const keys = JSON.parse(localStorage.getItem('apiKeys')     || '{}');
   if (s.provider)      document.getElementById('providerSelect').value  = s.provider;
   if (s.ollamaBaseUrl) document.getElementById('ollamaBaseUrl').value   = s.ollamaBaseUrl;
-  if (s.lang)          document.getElementById('langInput').value       = s.lang;
   if (s.customPrompt)  document.getElementById('customPrompt').value    = s.customPrompt;
+  if (s.ocrMode)       document.getElementById('ocrModeSelect').value   = s.ocrMode;
+  // Rebuild lang dropdown first (depends on provider), then restore saved lang
+  rebuildLangSelect(s.lang || '');
   // Auto-fill API key
   const prov = s.provider || 'anthropic';
   if (keys[prov]) document.getElementById('apiKey').value = keys[prov];
@@ -796,13 +1209,19 @@ function showPage(name) {
 // PROVIDER CHANGE
 // ═══════════════════════════════════════════════════════
 function onProviderChange() {
-  const provider = document.getElementById('providerSelect').value;
-  const isOllama = provider === 'ollama';
+  const provider       = document.getElementById('providerSelect').value;
+  const isOllama       = provider === 'ollama';
+  const isPaddle       = provider === 'paddleocr';
+  const isLocal        = isOllama || isPaddle;
 
-  document.getElementById('cloudSection').style.display  = isOllama ? 'none'  : 'block';
-  document.getElementById('ollamaSection').style.display = isOllama ? 'block' : 'none';
+  document.getElementById('cloudSection').style.display     = isLocal   ? 'none'  : 'block';
+  document.getElementById('ollamaSection').style.display    = isOllama  ? 'block' : 'none';
+  document.getElementById('paddleocrSection').style.display = isPaddle  ? 'block' : 'none';
 
-  if (!isOllama) {
+  // Rebuild language dropdown for this provider
+  rebuildLangSelect();
+
+  if (!isLocal) {
     const models  = MODELS[provider] || [];
     const sel     = document.getElementById('modelSelect');
     const s       = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
@@ -810,11 +1229,13 @@ function onProviderChange() {
     sel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
     if (s.model && models.includes(s.model)) sel.value = s.model;
     if (keys[provider]) document.getElementById('apiKey').value = keys[provider];
-  } else {
+  } else if (isOllama) {
     const s = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
     if (s.ollamaBaseUrl) document.getElementById('ollamaBaseUrl').value = s.ollamaBaseUrl;
     fetchOllamaModels();
-    // Ollama = always 1 concurrent by default
+    document.getElementById('concurrencySelect').value = '1';
+  } else if (isPaddle) {
+    // PaddleOCR: local, single-threaded
     document.getElementById('concurrencySelect').value = '1';
   }
   // Re-run estimate if a job is loaded
@@ -867,6 +1288,13 @@ async function uploadFile(file) {
   showToast(`Uploading ${file.name}…`);
   const form = new FormData();
   form.append('file', file);
+
+  // Reset all cards
+  document.getElementById('fileCard').style.display     = 'none';
+  document.getElementById('progressCard').style.display = 'none';
+  document.getElementById('resultCard').style.display   = 'none';
+  document.getElementById('convertCard').style.display  = 'none';
+
   try {
     const res  = await fetch('/api/upload', { method: 'POST', body: form });
     const data = await res.json();
@@ -878,26 +1306,101 @@ async function uploadFile(file) {
     document.getElementById('rtlDetectBadge').style.display    = 'none';
     document.getElementById('estimateBadge').style.display     = 'none';
 
-    document.getElementById('fileCard').style.display    = 'block';
-    document.getElementById('fileName').textContent      = data.filename;
-    document.getElementById('fileStats').textContent     = `${data.pageCount} page(s) ready`;
-    document.getElementById('resultCard').style.display  = 'none';
-    document.getElementById('progressCard').style.display = 'none';
-    showToast(`${data.pageCount} page(s) uploaded`, 'ok');
+    // Show conversion progress card
+    document.getElementById('convertCard').style.display = 'block';
+    document.getElementById('convertBar').style.width    = '0%';
+    document.getElementById('convertText').textContent   = 'Converting pages…';
+    document.getElementById('convertPct').textContent    = '0%';
 
-    // Auto-run estimate
-    runEstimate(data.jobId);
+    showToast(`File received — splitting pages…`);
+
+    // Poll until conversion done
+    await pollConvertStatus(data.jobId, data.filename);
+
   } catch (err) {
+    document.getElementById('convertCard').style.display = 'none';
     showToast(err.message, 'err');
+  }
+}
+
+async function pollConvertStatus(jobId, filename) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 600));
+
+    let data;
+    try {
+      const res = await fetch(`/api/upload-status/${jobId}`);
+      data = await res.json();
+    } catch {
+      continue;
+    }
+
+    const done  = data.done  || 0;
+    const total = data.total || 0;
+    const pct   = total > 0 ? Math.round((done / total) * 100) : (data.status === 'uploaded' ? 100 : 0);
+
+    document.getElementById('convertBar').style.width  = pct + '%';
+    document.getElementById('convertPct').textContent  = pct + '%';
+    document.getElementById('convertText').textContent = total > 0
+      ? `Page ${done} of ${total} converted`
+      : (data.status === 'converting' ? 'Converting…' : `${data.pageCount} page(s) ready`);
+
+    if (data.status === 'failed') {
+      document.getElementById('convertCard').style.display = 'none';
+      showToast(data.fatalError || 'Conversion failed', 'err');
+      return;
+    }
+
+    if (data.status === 'uploaded') {
+      // Keep polling a bit longer until script detection finishes (or times out)
+      if (data.scriptDetected === undefined) continue; // still running
+
+      // Conversion done — apply detected language
+      if (data.detectedLang) {
+        // For PaddleOCR use the ISO code; for AI providers use the full name
+        const provider = document.getElementById('providerSelect').value;
+        const langVal  = provider === 'paddleocr' ? (data.detectedPaddleLang || data.detectedLang) : data.detectedLang;
+        setLangSelectValue(langVal);
+        const badge = document.getElementById('detectedLangBadge');
+        badge.textContent   = `Detected: ${data.detectedLang}`;
+        badge.style.display = 'inline-block';
+        if (data.rtl) document.getElementById('rtlDetectBadge').style.display = 'inline-block';
+        // Store paddle lang for use by paddleocr provider
+        if (data.detectedPaddleLang) {
+          window._paddleLang = data.detectedPaddleLang;
+        }
+      }
+
+      document.getElementById('convertCard').style.display  = 'none';
+      document.getElementById('fileCard').style.display     = 'block';
+      document.getElementById('fileName').textContent       = filename;
+      document.getElementById('fileStats').textContent      = `${data.pageCount} page(s) ready`;
+      document.getElementById('resultCard').style.display   = 'none';
+      document.getElementById('progressCard').style.display = 'none';
+
+      const provider = document.getElementById('providerSelect').value;
+      if (data.detectedLang) {
+        showToast(`${data.pageCount} page(s) ready · Language: ${data.detectedLang}`, 'ok');
+      } else if (data.scriptDetected === false && provider === 'paddleocr') {
+        // Could not detect — ask user
+        showToast(`${data.pageCount} page(s) ready · Please set the document language manually`, 'warn');
+        document.getElementById('langInput').focus();
+      } else {
+        showToast(`${data.pageCount} page(s) ready`, 'ok');
+      }
+
+      runEstimate(jobId);
+      return;
+    }
   }
 }
 
 async function runDetectLanguage() {
   if (!currentJobId) return;
   const provider     = document.getElementById('providerSelect').value;
-  const isOllama     = provider === 'ollama';
-  const model        = isOllama ? document.getElementById('ollamaModelSelect').value : document.getElementById('modelSelect').value;
-  const apiKey       = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const isLocal      = provider === 'ollama' || provider === 'paddleocr';
+  const model        = provider === 'ollama' ? document.getElementById('ollamaModelSelect').value : (isLocal ? '' : document.getElementById('modelSelect').value);
+  const apiKey       = isLocal ? '' : document.getElementById('apiKey').value.trim();
   const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
 
   const btn = document.getElementById('detectBtn');
@@ -912,7 +1415,7 @@ async function runDetectLanguage() {
     const data = await res.json();
 
     if (data.language) {
-      document.getElementById('langInput').value = data.language;
+      setLangSelectValue(data.language);
       const badge = document.getElementById('detectedLangBadge');
       badge.textContent    = `Detected: ${data.language}`;
       badge.style.display  = 'inline-block';
@@ -933,7 +1436,7 @@ async function runEstimate(jobId) {
   const provider = document.getElementById('providerSelect').value;
   const model    = provider === 'ollama'
     ? document.getElementById('ollamaModelSelect').value
-    : document.getElementById('modelSelect').value;
+    : (provider === 'paddleocr' ? '' : document.getElementById('modelSelect').value);
 
   document.getElementById('estimateBadge').style.display = 'block';
   document.getElementById('estimateLabel').textContent   = '💰 Estimating…';
@@ -946,7 +1449,8 @@ async function runEstimate(jobId) {
     });
     const data = await res.json();
     if (data.free) {
-      document.getElementById('estimateLabel').innerHTML  = '🟢 Free (local — Ollama)';
+      const localName = provider === 'paddleocr' ? 'PaddleOCR' : 'Ollama';
+      document.getElementById('estimateLabel').innerHTML  = `🟢 Free (local — ${localName})`;
       document.getElementById('estimateBreakdown').textContent = '';
     } else {
       document.getElementById('estimateLabel').innerHTML  = `💰 Est. cost: <strong>${data.label}</strong>`;
@@ -965,12 +1469,13 @@ async function startOCR() {
   saveToStorage();
 
   const provider = document.getElementById('providerSelect').value;
-  const isOllama = provider === 'ollama';
-  const model    = isOllama
+  const isLocal  = provider === 'ollama' || provider === 'paddleocr';
+  const model    = provider === 'ollama'
     ? document.getElementById('ollamaModelSelect').value
-    : document.getElementById('modelSelect').value;
-  const apiKey        = isOllama ? '' : document.getElementById('apiKey').value.trim();
-  const language      = document.getElementById('langInput').value.trim();
+    : (isLocal ? '' : document.getElementById('modelSelect').value);
+  const apiKey        = isLocal ? '' : document.getElementById('apiKey').value.trim();
+  const language      = document.getElementById('langSelect').value.trim();
+  const ocrMode       = document.getElementById('ocrModeSelect').value;
   const customPrompt  = document.getElementById('customPrompt').value.trim();
   const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
   const concurrency   = parseInt(document.getElementById('concurrencySelect').value) || 3;
@@ -980,10 +1485,15 @@ async function startOCR() {
   document.getElementById('resultCard').style.display   = 'none';
   document.getElementById('cancelBtn').disabled         = false;
 
+  const pageFromRaw = parseInt(document.getElementById('pageRangeFrom').value) || 1;
+  const pageToRaw   = parseInt(document.getElementById('pageRangeTo').value)   || 0;
+  const pageFrom    = pageFromRaw >= 1 ? pageFromRaw - 1 : 0;  // convert to 0-based
+  const pageTo      = pageToRaw   >= 1 ? pageToRaw   - 1 : undefined;
+
   const res  = await fetch('/api/ocr', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ jobId: currentJobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl, concurrency }),
+    body:    JSON.stringify({ jobId: currentJobId, provider, model, apiKey, language, ocrMode, customPrompt, ollamaBaseUrl, concurrency, pageFrom, pageTo }),
   });
   const data = await res.json();
   if (!res.ok) { showToast(data.error || 'Failed to start', 'err'); return; }
@@ -997,6 +1507,7 @@ function clearJob() {
   document.getElementById('fileCard').style.display     = 'none';
   document.getElementById('progressCard').style.display = 'none';
   document.getElementById('resultCard').style.display   = 'none';
+  document.getElementById('convertCard').style.display  = 'none';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1050,6 +1561,18 @@ async function pollStatus(jobId) {
       document.getElementById('retryBtn').style.display = 'inline-flex';
     }
 
+    // Show live preview as soon as first page is done (don't wait for all 125)
+    if (data.done > 0 && document.getElementById('resultCard').style.display === 'none') {
+      await showResult(jobId);
+      // Keep progress card visible alongside result during processing
+      if (data.status === 'processing') {
+        document.getElementById('progressCard').style.display = 'block';
+      }
+    } else if (data.done > 0) {
+      // Refresh result pages in background so newly completed pages appear
+      refreshResultPages(jobId);
+    }
+
     if (['done','failed','cancelled'].includes(data.status)) {
       clearInterval(pollInterval); pollInterval = null;
       document.getElementById('cancelBtn').disabled = true;
@@ -1064,9 +1587,8 @@ async function pollStatus(jobId) {
       } else {
         const msg = data.fatalError ? `Fatal error: ${data.fatalError}` : `${data.failed} page(s) failed`;
         showToast(msg, 'err');
-        // Show retry button on progress card
         document.getElementById('retryBtn').style.display = 'inline-flex';
-        if (data.done > 0) await showResult(jobId);
+        await showResult(jobId);
       }
       loadHistory();
     }
@@ -1083,11 +1605,11 @@ async function retryFailed() {
   if (!currentJobId) return;
 
   const provider      = document.getElementById('providerSelect').value;
-  const isOllama      = provider === 'ollama';
-  const model         = isOllama ? document.getElementById('ollamaModelSelect').value : document.getElementById('modelSelect').value;
-  const apiKey        = isOllama ? '' : document.getElementById('apiKey').value.trim();
+  const isLocal       = provider === 'ollama' || provider === 'paddleocr';
+  const model         = provider === 'ollama' ? document.getElementById('ollamaModelSelect').value : (isLocal ? '' : document.getElementById('modelSelect').value);
+  const apiKey        = isLocal ? '' : document.getElementById('apiKey').value.trim();
   const ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
-  const language      = document.getElementById('langInput').value.trim();
+  const language      = document.getElementById('langSelect').value.trim();
 
   const res  = await fetch(`/api/retry/${currentJobId}`, {
     method:  'POST',
@@ -1109,8 +1631,11 @@ async function retryFailed() {
 }
 
 // ═══════════════════════════════════════════════════════
-// RESULT
+// RESULT / REVIEW
 // ═══════════════════════════════════════════════════════
+let reviewCurrentPage = 0;   // currently displayed page index (0-based)
+let pageImageUrls = {};       // jobId → { pageIndex → url }
+
 async function showResult(jobId) {
   const res  = await fetch(`/api/result/${jobId}`);
   const data = await res.json();
@@ -1131,69 +1656,215 @@ async function showResult(jobId) {
   const detected = data.detectedLang || detectLangHeuristic(data.fullText);
   if (detected) { lb.textContent = detected; lb.style.display = 'inline-block'; }
 
-  // Show retry banner if any pages failed
+  // Retry banner
   const failedPages = data.pages.filter(p => p.status === 'failed');
   const retryBanner = document.getElementById('retryBanner');
   if (failedPages.length > 0) {
     document.getElementById('retryBannerText').textContent =
-      `${failedPages.length} page(s) failed to OCR: pages ${failedPages.map(p => p.index + 1).join(', ')}`;
+      `${failedPages.length} page(s) failed: pages ${failedPages.map(p => p.index + 1).join(', ')}`;
     retryBanner.style.display = 'block';
   } else {
     retryBanner.style.display = 'none';
   }
 
-  buildResultTabs(data.pages);
-  renderResult(-1, data.pages, data.fullText);
+  buildThumbStrip(data.pages);
+
+  // Show first page with text, or page 0
+  const firstGood = data.pages.findIndex(p => p.status === 'done');
+  reviewCurrentPage = firstGood >= 0 ? firstGood : 0;
+  showReviewPage(reviewCurrentPage);
+}
+
+// Refresh result pages during live processing (non-destructive)
+async function refreshResultPages(jobId) {
+  try {
+    const res  = await fetch(`/api/result/${jobId}`);
+    const data = await res.json();
+    if (!res.ok) return;
+    let lastNewlyDone = -1;
+    // Update resultPages with newly completed pages
+    data.pages.forEach(p => {
+      const existing = resultPages[p.index];
+      if (existing && existing.status !== 'done' && p.status === 'done') {
+        resultPages[p.index] = p;
+        lastNewlyDone = p.index;
+        // Update thumb — remove processing animation, mark done
+        const thumb = document.querySelector(`.thumb-item[data-page-index="${p.index}"]`);
+        if (thumb) {
+          thumb.className = 'thumb-item';
+          thumb.title = `Page ${p.index+1}`;
+          thumb.querySelector('.thumb-num').textContent = `P${p.index+1}`;
+          // Load thumbnail image now that it's done
+          const thumbImg = thumb.querySelector('img');
+          if (thumbImg && !thumbImg.src.includes('/api/page-image/')) {
+            thumbImg.src = `/api/page-image/${jobId}/${p.index}`;
+          }
+        }
+        // If this is the current page, populate the editor
+        if (p.index === reviewCurrentPage) {
+          document.getElementById('pageEditor').value = p.text || '';
+          applyFormat();
+        }
+      }
+    });
+    // Auto-navigate to the latest newly-done page so user sees OCR sweeping through
+    if (lastNewlyDone >= 0) {
+      showReviewPage(lastNewlyDone);
+    }
+  } catch {}
+}
+
+function thumbClass(p) {
+  if (p.status === 'failed')     return 'thumb-item failed';
+  if (p.status === 'done')       return 'thumb-item';
+  return 'thumb-item processing';  // pending / processing
+}
+
+function buildThumbStrip(pages) {
+  const strip = document.getElementById('thumbStrip');
+  strip.innerHTML = '';
+  pages.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.className = thumbClass(p);
+    item.dataset.pageIndex = i;
+    item.title = `Page ${i+1}${p.status === 'failed' ? ' — failed' : p.status !== 'done' ? ' — processing…' : ''}`;
+    item.onclick = () => { reviewCurrentPage = i; showReviewPage(i); };
+
+    const img = document.createElement('img');
+    img.src = ''; // loaded lazily
+    img.alt = `P${i+1}`;
+    img.dataset.pageIndex = i;
+
+    const num = document.createElement('div');
+    num.className = 'thumb-num';
+    num.textContent = `P${i+1}`;
+
+    item.appendChild(img);
+    item.appendChild(num);
+    strip.appendChild(item);
+  });
+
+  // Lazy-load thumbnails from job DB
+  loadThumbnails(pages);
+}
+
+async function loadThumbnails(pages) {
+  if (!currentJobId) return;
+  try {
+    const res  = await fetch(`/api/page-images/${currentJobId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    // Store URL for each page (no base64 needed client-side)
+    if (!pageImageUrls[currentJobId]) pageImageUrls[currentJobId] = {};
+    data.pages.forEach(p => {
+      pageImageUrls[currentJobId][p.index] = p.url;
+    });
+    // Set thumbnail src directly — browser fetches and caches each PNG
+    document.querySelectorAll('.thumb-item img').forEach(img => {
+      const idx = parseInt(img.dataset.pageIndex);
+      const url = pageImageUrls[currentJobId]?.[idx];
+      if (url) img.src = url;
+    });
+    // Now refresh the main preview for current page
+    showReviewPage(reviewCurrentPage, false);
+  } catch {}
+}
+
+function showReviewPage(pageIndex, scrollThumb = true) {
+  if (!resultPages.length) return;
+  const page = resultPages[pageIndex];
+  if (!page) return;
+
+  reviewCurrentPage = pageIndex;
+  const total = resultPages.length;
+
+  // Update thumb strip active state
+  document.querySelectorAll('.thumb-item').forEach((el, i) => {
+    el.classList.toggle('active', i === pageIndex);
+  });
+
+  // Scroll thumbnail into view
+  if (scrollThumb) {
+    const activeThumb = document.querySelector(`.thumb-item[data-page-index="${pageIndex}"]`);
+    if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }
+
+  // Update page counter
+  document.getElementById('pageCounter').textContent = `Page ${pageIndex + 1} / ${total}`;
+  document.getElementById('prevPageBtn').disabled = pageIndex === 0;
+  document.getElementById('nextPageBtn').disabled = pageIndex === total - 1;
+
+  // Show image preview — use direct URL (browser caches per page)
+  const previewImg   = document.getElementById('previewImg');
+  const placeholder  = document.getElementById('previewPlaceholder');
+  const url = pageImageUrls[currentJobId]?.[pageIndex]
+    || `/api/page-image/${currentJobId}/${pageIndex}`;
+
+  placeholder.style.display = 'none';
+  previewImg.style.display  = 'block';
+  previewImg.src = url;
+  previewImg.onerror = () => {
+    previewImg.style.display = 'none';
+    placeholder.style.display = 'block';
+    placeholder.textContent = page.status === 'failed' ? '⚠ Page failed' : '⚠ Could not load preview';
+  };
+
+  // Show OCR text in editor
+  const editor = document.getElementById('pageEditor');
+  editor.placeholder = 'OCR text will appear here…';
+  if (page.status === 'done') {
+    editor.value = page.text || '';
+  } else if (page.status === 'failed') {
+    editor.value = `[Page ${pageIndex+1} failed: ${page.error || 'unknown error'}]`;
+  } else {
+    editor.value = '';
+    editor.placeholder = `⏳ Reading page ${pageIndex+1}…`;
+  }
   applyFormat();
 }
 
-function buildResultTabs(pages) {
-  const tabs = document.getElementById('resultTabs');
-  tabs.innerHTML = '';
-  const all = document.createElement('button');
-  all.className   = 'active';
-  all.textContent = 'All Pages';
-  all.onclick     = () => { activePageTab = -1; tabs.querySelectorAll('button').forEach(b=>b.classList.remove('active')); all.classList.add('active'); renderResult(-1, resultPages, null); };
-  tabs.appendChild(all);
-  if (pages.length > 1) {
-    pages.forEach(p => {
-      const b = document.createElement('button');
-      b.textContent = `P${p.index+1}${p.status==='failed'?' ⚠':''}`;
-      b.onclick = () => { activePageTab = p.index; tabs.querySelectorAll('button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderResult(p.index, resultPages, null); };
-      tabs.appendChild(b);
-    });
+function navigatePage(dir) {
+  const next = reviewCurrentPage + dir;
+  if (next >= 0 && next < resultPages.length) showReviewPage(next);
+}
+
+function onEditorChange() {
+  // Save edits back to resultPages so copyAll/download uses edited text
+  if (resultPages[reviewCurrentPage]) {
+    resultPages[reviewCurrentPage].text = document.getElementById('pageEditor').value;
   }
 }
 
-function renderResult(pageIndex, pages, fullText) {
-  const el = document.getElementById('resultText');
-  if (pageIndex === -1) {
-    el.textContent = fullText !== null ? fullText
-      : pages.map((p,i) => pages.length > 1 ? `=== Page ${i+1} ===\n${p.text}` : p.text).join('\n\n');
-  } else {
-    const p = pages.find(x => x.index === pageIndex);
-    el.textContent = p ? p.text : '';
-  }
+function copyCurrentPage() {
+  const text = document.getElementById('pageEditor').value;
+  navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'ok'));
 }
 
+// Keep switchToPage working (used by page grid clicks during processing)
 function switchToPage(index) {
   if (!resultPages.length) return;
   document.getElementById('resultCard').scrollIntoView({ behavior:'smooth' });
-  const tabs = document.getElementById('resultTabs').querySelectorAll('button');
-  if (tabs[index+1]) tabs[index+1].click();
+  showReviewPage(index);
 }
 
+function buildResultTabs() {} // no-op, kept for compat
+
+function renderResult() {} // no-op, kept for compat
+
 function applyFormat() {
-  const el  = document.getElementById('resultText');
-  el.style.fontFamily  = document.getElementById('fontSelect').value;
-  el.style.fontSize    = document.getElementById('fontSizeSelect').value;
-  el.style.direction   = isRTL ? 'rtl' : 'ltr';
-  el.style.textAlign   = isRTL ? 'right' : 'left';
+  const editor = document.getElementById('pageEditor');
+  if (!editor) return;
+  editor.style.fontFamily = document.getElementById('fontSelect').value;
+  editor.style.fontSize   = document.getElementById('fontSizeSelect').value;
+  editor.dir              = isRTL ? 'rtl' : 'ltr';
 }
 
 function copyAll() {
-  navigator.clipboard.writeText(document.getElementById('resultText').textContent)
-    .then(() => showToast('Copied!', 'ok'));
+  // Use edited text from resultPages
+  const text = resultPages.length > 1
+    ? resultPages.map((p,i) => `=== Page ${i+1} ===\n${p.text||''}`).join('\n\n')
+    : (resultPages[0]?.text || '');
+  navigator.clipboard.writeText(text).then(() => showToast('Copied all!', 'ok'));
 }
 
 function downloadResult(fmt) {
@@ -1364,13 +2035,14 @@ function saveOllamaSettings() {
 // ═══════════════════════════════════════════════════════
 function saveToStorage() {
   const provider = document.getElementById('providerSelect').value;
-  const isOllama = provider === 'ollama';
+  const isLocal  = provider === 'ollama' || provider === 'paddleocr';
   const s = JSON.parse(localStorage.getItem('ocrSettings') || '{}');
   s.provider     = provider;
-  s.lang         = document.getElementById('langInput').value.trim();
+  s.lang         = document.getElementById('langSelect').value;
+  s.ocrMode      = document.getElementById('ocrModeSelect').value;
   s.customPrompt = document.getElementById('customPrompt').value.trim();
   s.ollamaBaseUrl = document.getElementById('ollamaBaseUrl').value.trim();
-  if (!isOllama) {
+  if (!isLocal) {
     s.model = document.getElementById('modelSelect').value;
     const apiKey = document.getElementById('apiKey').value.trim();
     if (apiKey) {
@@ -1378,7 +2050,7 @@ function saveToStorage() {
       keys[provider] = apiKey;
       localStorage.setItem('apiKeys', JSON.stringify(keys));
     }
-  } else {
+  } else if (provider === 'ollama') {
     s.ollamaModel = document.getElementById('ollamaModelSelect').value;
   }
   localStorage.setItem('ocrSettings', JSON.stringify(s));
@@ -1428,20 +2100,248 @@ function timeAgo(iso) {
 // ═══════════════════════════════════════════════════════
 // PROMPT PRESETS
 // ═══════════════════════════════════════════════════════
-const PRESETS = {
-  table:       'This document contains tables. Extract all table data preserving rows and columns, using | to separate columns and --- for row separators.',
-  handwriting: 'This is handwritten text. Do your best to decipher the handwriting accurately. If a word is unclear, write [unclear] instead of guessing.',
-  numbers:     'Extract ONLY numbers, amounts, dates, and numeric data from this document. Ignore decorative text and labels unless they are essential context.',
-  noheaders:   'Skip page headers, footers, page numbers, and watermarks. Extract only the main body text.',
+// OCR mode → prompt text (used by server when customPrompt is empty and ocrMode is set)
+const OCR_MODES = {
+  standard:    '',  // server uses the default prompt
+  book:        'This is a scanned book or article page. Preserve paragraph breaks, chapter titles, and section headings. Maintain the reading flow. Ignore page numbers and running headers.',
+  photo:       'This image may be skewed, rotated, low-contrast, or photographed at an angle. Correct for perspective distortion mentally and extract all readable text. If parts are unreadable, mark them [unreadable].',
+  table:       'This document contains tables. Extract all table data preserving rows and columns. Use | to separate columns and a blank line between rows. Preserve column headers.',
+  handwriting: 'This is handwritten text. Do your best to decipher the handwriting accurately. Preserve line breaks. If a word is unclear, write [unclear] instead of guessing.',
+  receipt:     'This is a receipt or invoice. Extract: vendor name, date, all line items with quantities and prices, subtotal, tax, and total amount. Format as a clean list.',
+  numbers:     'Extract ONLY numbers, amounts, dates, and numeric data. Ignore decorative text and labels unless they provide essential context for the numbers.',
+  noheaders:   'Skip page headers, footers, page numbers, running titles, and watermarks. Extract only the main body text.',
+  custom:      '',  // user fills in
 };
 
+const PRESETS = OCR_MODES; // preset buttons map to same keys
+
 function setPreset(key) {
-  document.getElementById('customPrompt').value = PRESETS[key] || '';
+  const val = OCR_MODES[key] || '';
+  document.getElementById('customPrompt').value = val;
+  // Also sync the mode selector if it matches a known mode
+  const modeEl = document.getElementById('ocrModeSelect');
+  if (key === '') {
+    modeEl.value = 'standard';
+  } else if (OCR_MODES[key] !== undefined) {
+    modeEl.value = key;
+  } else {
+    modeEl.value = 'custom';
+  }
+}
+
+function onOcrModeChange() {
+  const mode = document.getElementById('ocrModeSelect').value;
+  if (mode === 'custom') return; // leave textarea as-is
+  document.getElementById('customPrompt').value = OCR_MODES[mode] || '';
+}
+
+// Rebuild the language dropdown based on current provider
+function rebuildLangSelect(savedValue) {
+  const provider = document.getElementById('providerSelect').value;
+  const langs    = provider === 'paddleocr' ? PADDLE_LANGUAGES : AI_LANGUAGES;
+  const sel      = document.getElementById('langSelect');
+  const current  = savedValue !== undefined ? savedValue : sel.value;
+  sel.innerHTML  = langs.map(l =>
+    `<option value="${l.value}"${l.value === current ? ' selected' : ''}>${l.label}</option>`
+  ).join('');
+  // Sync hidden input
+  document.getElementById('langInput').value = sel.value;
+}
+
+function onLangSelectChange() {
+  document.getElementById('langInput').value = document.getElementById('langSelect').value;
+}
+
+// Set langSelect to the closest matching value; if not found, add it as a custom option
+function setLangSelectValue(val) {
+  if (!val) return;
+  const sel = document.getElementById('langSelect');
+  // Try exact match first
+  const opt = Array.from(sel.options).find(o => o.value === val || o.value.toLowerCase() === val.toLowerCase());
+  if (opt) {
+    sel.value = opt.value;
+  } else {
+    // Add a custom option
+    const newOpt = document.createElement('option');
+    newOpt.value = val;
+    newOpt.textContent = val;
+    sel.insertBefore(newOpt, sel.options[1]); // after Auto-detect
+    sel.value = val;
+  }
+  document.getElementById('langInput').value = sel.value;
 }
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ═══════════════════════════════════════════════════════
+// CLIPBOARD PASTE (Ctrl+V)
+// ═══════════════════════════════════════════════════════
+document.addEventListener('paste', function(e) {
+  const items = (e.clipboardData || e.originalEvent && e.originalEvent.clipboardData || {}).items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      const file = items[i].getAsFile();
+      if (file) {
+        e.preventDefault();
+        uploadFile(file);
+      }
+      break;
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// PREVIEW ZOOM
+// ═══════════════════════════════════════════════════════
+let previewZoom = 1.0;
+
+function zoomPreview(delta) {
+  previewZoom = Math.min(3.0, Math.max(0.5, previewZoom + delta));
+  const img = document.getElementById('previewImg');
+  img.style.transform       = `scale(${previewZoom})`;
+  img.style.transformOrigin = 'top left';
+  document.getElementById('previewZoomLabel').textContent = Math.round(previewZoom * 100) + '%';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const wrap = document.getElementById('previewImgWrap');
+  if (wrap) {
+    wrap.addEventListener('wheel', function(e) {
+      if (document.getElementById('resultCard').style.display === 'none') return;
+      e.preventDefault();
+      zoomPreview(e.deltaY < 0 ? 0.25 : -0.25);
+    }, { passive: false });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+// IN-PAGE SEARCH (Ctrl+F)
+// ═══════════════════════════════════════════════════════
+let searchMatches  = [];   // [{pageIndex, matchCount}]
+let searchMatchIdx = 0;    // current position in searchMatches
+
+function openSearchBar() {
+  const bar = document.getElementById('searchBar');
+  bar.style.display = 'flex';
+  document.getElementById('searchInput').focus();
+}
+
+function closeSearchBar() {
+  document.getElementById('searchBar').style.display = 'none';
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchCount').textContent = '';
+  searchMatches  = [];
+  searchMatchIdx = 0;
+}
+
+function searchInResults() {
+  const query = document.getElementById('searchInput').value;
+  searchMatches  = [];
+  searchMatchIdx = 0;
+  if (!query || !resultPages.length) {
+    document.getElementById('searchCount').textContent = '';
+    return;
+  }
+  const lower = query.toLowerCase();
+  resultPages.forEach((p, idx) => {
+    const text = (p.text || '').toLowerCase();
+    let count = 0, pos = 0;
+    while ((pos = text.indexOf(lower, pos)) !== -1) { count++; pos += lower.length; }
+    if (count > 0) searchMatches.push({ pageIndex: idx, matchCount: count });
+  });
+  if (searchMatches.length === 0) {
+    document.getElementById('searchCount').textContent = 'No results';
+    return;
+  }
+  document.getElementById('searchCount').textContent = `${searchMatches.length} page(s) match`;
+  searchMatchIdx = 0;
+  _navigateToSearchMatch();
+}
+
+function _navigateToSearchMatch() {
+  if (!searchMatches.length) return;
+  const m = searchMatches[searchMatchIdx];
+  showReviewPage(m.pageIndex);
+  // Highlight first occurrence in textarea
+  const query  = document.getElementById('searchInput').value;
+  const editor = document.getElementById('pageEditor');
+  const text   = editor.value.toLowerCase();
+  const pos    = text.indexOf(query.toLowerCase());
+  if (pos !== -1) {
+    editor.focus();
+    editor.setSelectionRange(pos, pos + query.length);
+  }
+  document.getElementById('searchCount').textContent =
+    `Match ${searchMatchIdx + 1} / ${searchMatches.length} (page ${m.pageIndex + 1})`;
+}
+
+function searchNext() {
+  if (!searchMatches.length) return;
+  searchMatchIdx = (searchMatchIdx + 1) % searchMatches.length;
+  _navigateToSearchMatch();
+}
+
+function searchPrev() {
+  if (!searchMatches.length) return;
+  searchMatchIdx = (searchMatchIdx - 1 + searchMatches.length) % searchMatches.length;
+  _navigateToSearchMatch();
+}
+
+// ═══════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════
+document.addEventListener('keydown', function(e) {
+  const resultVisible = document.getElementById('resultCard') &&
+                        document.getElementById('resultCard').style.display !== 'none';
+  const tag  = document.activeElement ? document.activeElement.tagName : '';
+  const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+  // Ctrl+F — open search bar (when result visible)
+  if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+    if (resultVisible) {
+      e.preventDefault();
+      openSearchBar();
+    }
+    return;
+  }
+
+  // Ctrl+S — download selected
+  if (e.ctrlKey && !e.shiftKey && e.key === 's') {
+    if (resultVisible) {
+      e.preventDefault();
+      downloadSelected();
+    }
+    return;
+  }
+
+  // Ctrl+Shift+C — copy all
+  if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+    if (resultVisible) {
+      e.preventDefault();
+      copyAll();
+    }
+    return;
+  }
+
+  // Escape — close search bar if open
+  if (e.key === 'Escape') {
+    const bar = document.getElementById('searchBar');
+    if (bar && bar.style.display === 'flex') {
+      e.preventDefault();
+      closeSearchBar();
+    }
+    return;
+  }
+
+  // ArrowLeft / ArrowRight — navigate pages (only when not in an input/textarea)
+  if (!inInput && resultVisible) {
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); navigatePage(-1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); navigatePage(1);  return; }
+  }
+});
 </script>
 </body>
 </html>
