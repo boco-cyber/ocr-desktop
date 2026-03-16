@@ -1,8 +1,10 @@
 /**
  * PDF to images converter
  * Strategy 1: pdf2pic (Ghostscript-backed, highest quality at 200 DPI)
- *   — Requires Ghostscript installed on the system OR bundled via electron-builder extraResources
- * Strategy 2: pdfjs-dist + canvas (pure Node, no system dependencies, ~144 DPI equivalent)
+ *   — Requires Ghostscript installed on the system
+ *   — Falls back automatically if unavailable
+ * Strategy 2: pdf-to-img (pure JS, uses pdfjs-dist internally, no native deps)
+ *   — No system dependencies, works on all Node versions
  *   — Used automatically if pdf2pic/Ghostscript is unavailable
  *
  * Output: Array of { index, imageBase64, width, height }
@@ -10,6 +12,7 @@
  */
 const path = require('path');
 const fs   = require('fs');
+const sharp = require('sharp');
 
 const MAX_DIM = 2000;
 
@@ -17,8 +20,8 @@ async function toPages(pdfPath) {
   try {
     return await convertWithPdf2pic(pdfPath);
   } catch (err) {
-    console.warn('pdf2pic unavailable, falling back to pdfjs-dist:', err.message);
-    return await convertWithPdfjs(pdfPath);
+    console.warn('pdf2pic unavailable, falling back to pdf-to-img:', err.message);
+    return await convertWithPdfToImg(pdfPath);
   }
 }
 
@@ -28,7 +31,7 @@ async function convertWithPdf2pic(pdfPath) {
 
   const converter = fromPath(pdfPath, {
     density:      200,
-    saveFilename: path.basename(pdfPath, '.pdf'),
+    saveFilename: path.basename(pdfPath, '.pdf') + '_p',
     savePath:     outputDir,
     format:       'png',
     width:        MAX_DIM,
@@ -45,32 +48,34 @@ async function convertWithPdf2pic(pdfPath) {
   }));
 }
 
-async function convertWithPdfjs(pdfPath) {
-  // Lazy require — canvas has native bindings that may not be available in dev
-  const pdfjsLib   = require('pdfjs-dist/legacy/build/pdf.js');
-  const { createCanvas } = require('canvas');
-
-  const data       = new Uint8Array(fs.readFileSync(pdfPath));
-  const loadingTask = pdfjsLib.getDocument({ data });
-  const pdfDoc     = await loadingTask.promise;
+async function convertWithPdfToImg(pdfPath) {
+  const { pdf } = require('pdf-to-img');
 
   const pages = [];
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page     = await pdfDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // ~144 DPI
+  const doc   = await pdf(pdfPath, { scale: 2.0 });
 
-    const canvas  = createCanvas(viewport.width, viewport.height);
-    const context = canvas.getContext('2d');
+  let index = 0;
+  for await (const pageImage of doc) {
+    // pageImage is a Buffer (PNG)
+    // Resize if too large
+    const meta = await sharp(pageImage).metadata();
+    const needsResize = (meta.width || 0) > MAX_DIM || (meta.height || 0) > MAX_DIM;
 
-    await page.render({ canvasContext: context, viewport }).promise;
+    let buffer = pageImage;
+    if (needsResize) {
+      buffer = await sharp(pageImage)
+        .resize(MAX_DIM, MAX_DIM, { fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer();
+    }
 
-    const buffer = canvas.toBuffer('image/png');
     pages.push({
-      index:       i - 1,
+      index,
       imageBase64: buffer.toString('base64'),
-      width:       viewport.width,
-      height:      viewport.height,
+      width:       meta.width  || MAX_DIM,
+      height:      meta.height || MAX_DIM,
     });
+    index++;
   }
 
   return pages;
