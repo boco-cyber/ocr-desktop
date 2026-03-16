@@ -405,8 +405,11 @@ app.delete('/api/jobs/:jobId', (req, res) => {
 // ── Ollama model list ─────────────────────────────────────────────────────
 app.get('/api/ollama/models', async (req, res) => {
   const baseUrl = req.query.baseUrl || 'http://localhost:11434';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const r = await fetch(`${baseUrl}/api/tags`, { timeout: 5000 });
+    const r = await fetch(`${baseUrl}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     const models = (data.models || []).map(m => ({
@@ -416,6 +419,7 @@ app.get('/api/ollama/models', async (req, res) => {
     }));
     res.json({ models });
   } catch (err) {
+    clearTimeout(timer);
     res.json({ models: [], error: 'Ollama not running or not accessible at ' + baseUrl });
   }
 });
