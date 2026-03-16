@@ -980,6 +980,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           </select>
           <button class="btn btn-primary btn-sm" onclick="downloadSelected()">⬇ Download</button>
           <button class="btn btn-ghost btn-sm" onclick="clearJob()">✕ New</button>
+          <span class="spacer"></span>
+          <label id="shutdownLabel" style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);cursor:pointer;user-select:none" title="Shut down PC when OCR finishes (Electron only)">
+            <input type="checkbox" id="shutdownCheck" style="width:14px;height:14px;accent-color:var(--red)"/>
+            <span>Shutdown when done</span>
+          </label>
         </div>
       </div>
 
@@ -1500,6 +1505,8 @@ async function startOCR() {
 
   buildPageGrid(data.pageCount);
   startPolling(currentJobId);
+  // Tell Electron to keep PC awake while processing
+  if (window.electronAPI) window.electronAPI.ocrStarted();
 }
 
 function clearJob() {
@@ -1591,6 +1598,15 @@ async function pollStatus(jobId) {
         await showResult(jobId);
       }
       loadHistory();
+
+      // Release wake lock; trigger shutdown if user checked the option
+      if (window.electronAPI) {
+        const shutdown = data.status === 'done' && document.getElementById('shutdownCheck').checked;
+        window.electronAPI.ocrFinished(shutdown);
+        if (shutdown) {
+          showToast('Shutting down in 30 seconds… close the app to cancel.', 'warn');
+        }
+      }
     }
   } catch (e) { console.error(e); }
 }

@@ -271,6 +271,21 @@ Added to a new `keydown` listener on `document` (the existing file had none):
 - When `rtl=true`: each body `Paragraph` gets `bidirectional: true`, and the font is `'Arial'` instead of `'Calibri'` for better Arabic/Hebrew rendering.
 - `GET /api/download/:jobId/docx` in `server.js` passes `{ rtl: job.rtl || false }` to `buildDocx`.
 
+### Keep PC Awake + Shutdown When Done (Electron only)
+- **`preload.js`** — new contextBridge script exposing `window.electronAPI` with two methods:
+  - `ocrStarted()` — sends `'ocr-started'` IPC to main process
+  - `ocrFinished(shutdown)` — sends `'ocr-finished'` IPC with boolean shutdown flag
+- **`electron.js`** — imports `powerSaveBlocker` and `ipcMain`:
+  - On `'ocr-started'`: calls `powerSaveBlocker.start('prevent-app-suspension')` to keep PC awake
+  - On `'ocr-finished'`: releases the blocker; if `shutdown=true` waits 30 seconds then runs `shutdown /s /t 0` (Windows) or `shutdown -h now` (Linux/Mac)
+  - `BrowserWindow` now loads `preload.js` via `webPreferences.preload`
+- **`index.html`**:
+  - "Shutdown when done" checkbox (`#shutdownCheck`) added to the result card bottom toolbar
+  - `startOCR()` calls `window.electronAPI?.ocrStarted()` after kicking off OCR
+  - When polling detects `status === 'done'/'failed'/'cancelled'`, calls `window.electronAPI?.ocrFinished(shutdown)` — `shutdown` is only `true` if status is `done` and checkbox is checked
+  - Shows a 30-second warning toast when shutdown is triggered
+  - `window.electronAPI` is `undefined` in browser mode — all calls are safely no-ops
+
 ---
 
 ## electron-builder Config Notes
