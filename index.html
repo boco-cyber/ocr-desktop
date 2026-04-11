@@ -9,6 +9,8 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg:      #0f1117;
+  --bg1:     #13161f;
+  --bg2:     #1e2231;
   --surface: #1a1d27;
   --card:    #21253a;
   --border:  #2e3350;
@@ -25,7 +27,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -1295,13 +1298,16 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 }
 
 /* ═══════════════ EDITOR ═══════════════ */
-#page-editor {
+#page-editor.active {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: calc(100vh - 57px);
   overflow: hidden;
+  position: relative;
+  /* Pull out of .content padding so editor is flush */
+  margin: -24px -28px;
+  width: calc(100% + 56px);
 }
-#page-editor.active { display: flex; }
 
 /* Top bar */
 #editorTopBar {
@@ -1476,6 +1482,20 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   transition: border-color .12s;
 }
 .editor-ai-preset:hover { border-color: var(--accent2); }
+.editor-export-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: .82rem;
+  white-space: nowrap;
+}
+.editor-export-item:hover { background: var(--card); }
 .editor-scope-btn {
   flex: 1;
   background: var(--card);
@@ -1542,6 +1562,280 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════ PDF EDITOR ═══════════════ */
+#page-pdfeditor.active {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 57px);
+  overflow: hidden;
+  position: relative;
+  margin: -24px -28px;
+  width: calc(100% + 56px);
+}
+#pdfEditorTopBar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+#pdfEditorTopBar .tb-sep {
+  width: 1px; height: 22px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+#pdfEditorTopBar select, #pdfEditorTopBar input[type=number] {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: .82rem;
+  font-family: inherit;
+}
+.pdf-tb-btn {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: .82rem;
+  font-family: inherit;
+  padding: 3px 9px;
+  transition: all .12s;
+  white-space: nowrap;
+}
+.pdf-tb-btn:hover { background: var(--card); border-color: var(--accent); }
+.pdf-tb-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#pdfEditorWorkspace {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+/* ── Left: thumbnail panel ── */
+#pdfThumbnailPanel {
+  width: 140px;
+  background: var(--bg1);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pdf-thumb {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #fff;
+  transition: border-color .15s;
+}
+.pdf-thumb:hover { border-color: var(--accent); }
+.pdf-thumb.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent)44; }
+.pdf-thumb-canvas {
+  width: 100%;
+  display: block;
+  aspect-ratio: 794 / 1123;
+  background: #fff;
+}
+.pdf-thumb-num {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: .65rem;
+  color: #555;
+  font-weight: 600;
+}
+.pdf-thumb-actions {
+  display: flex;
+  gap: 3px;
+  padding: 3px 2px;
+  background: var(--bg1);
+}
+.pdf-thumb-actions button {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: .65rem;
+  cursor: pointer;
+  padding: 2px;
+}
+.pdf-thumb-actions button:hover { color: var(--red); border-color: var(--red); }
+/* ── Center: canvas area ── */
+#pdfCanvasArea {
+  flex: 1;
+  overflow: auto;
+  background: #3a3d4a;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px;
+}
+#pdfPageCanvas {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 8px 40px #0008;
+  transform-origin: top center;
+  user-select: none;
+  overflow: hidden;
+}
+/* ── Elements on canvas ── */
+.pdf-element {
+  position: absolute;
+  cursor: move;
+  box-sizing: border-box;
+  min-width: 20px;
+  min-height: 14px;
+}
+.pdf-element.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pdf-element .resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border: 1px solid #fff;
+  border-radius: 2px;
+  z-index: 10;
+}
+.pdf-element .resize-handle.se { bottom: -4px; right: -4px; cursor: se-resize; }
+.pdf-element .resize-handle.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+.pdf-element .resize-handle.ne { top: -4px; right: -4px; cursor: ne-resize; }
+.pdf-element .resize-handle.nw { top: -4px; left: -4px; cursor: nw-resize; }
+.pdf-el-text {
+  white-space: pre-wrap;
+  overflow: hidden;
+  line-height: 1.3;
+  outline: none;
+  width: 100%;
+  height: 100%;
+  color: #000;
+  cursor: move;
+  padding: 1px;
+}
+.pdf-el-text[contenteditable=true] {
+  cursor: text;
+  background: rgba(91,114,255,.07);
+  outline: 1px dashed var(--accent);
+}
+.pdf-el-shape {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #1a1a2e;
+  box-sizing: border-box;
+}
+.pdf-el-image {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+}
+/* ── Right: properties panel ── */
+#pdfPropertiesPanel {
+  width: 220px;
+  background: var(--bg1);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+  padding: 12px;
+  font-size: .82rem;
+}
+#pdfPropertiesPanel h4 {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  margin-bottom: 10px;
+}
+.pdf-prop-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+}
+.pdf-prop-row label {
+  width: 52px;
+  font-size: .75rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.pdf-prop-row input {
+  flex: 1;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 5px;
+  font-size: .78rem;
+  font-family: inherit;
+  width: 0;
+}
+/* ── Project list overlay ── */
+#pdfProjectListOverlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  z-index: 600;
+  align-items: center;
+  justify-content: center;
+}
+#pdfProjectListOverlay.show { display: flex; }
+#pdfProjectListModal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 420px;
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pdf-project-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .12s;
+}
+.pdf-project-item:hover { background: var(--card); border-color: var(--accent); }
+.pdf-project-item .pdf-proj-name { font-weight: 600; font-size: .9rem; }
+.pdf-project-item .pdf-proj-meta { font-size: .72rem; color: var(--muted); }
+/* ── Loading overlay ── */
+#pdfLoadingOverlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+}
+#pdfLoadingOverlay.show { display: flex; }
+#pdfLoadingOverlay .spinner { width: 40px; height: 40px; border: 3px solid #fff3; border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+/* ── Sidebar for PDF editor ── */
+#sidebar-pdfeditor { display: none; }
 </style>
 </head>
 <body>
@@ -1555,6 +1849,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
     <button class="active" onclick="showPage('ocr')">OCR</button>
     <button onclick="showPage('translator')">Translator</button>
     <button onclick="showPage('editor')">Editor</button>
+    <button onclick="showPage('pdfeditor')">PDF Editor</button>
     <button onclick="showPage('history')">History</button>
     <button onclick="showPage('settings')">Settings</button>
   </nav>
@@ -1795,6 +2090,46 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <p class="text-muted" style="font-size:.82rem;line-height:1.5">
           This screen shows persisted project data only. Background OCR or translation keeps running in the main process even if you navigate away.
         </p>
+      </div>
+    </div>
+
+    <div id="sidebar-pdfeditor" style="display:none">
+      <div class="sidebar-section">
+        <h3>PDF Editor</h3>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="pdfEditorNewFromPdf()">📂 Open PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorNewBlank()">📄 New Blank</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorShowProjects()">📋 My Documents</button>
+        </div>
+      </div>
+      <div class="sidebar-section" style="margin-top:0">
+        <h3>Page</h3>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorAddPage()">➕ Add Page</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorRemovePage()">🗑 Remove Page</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorMovePageUp()">▲ Move Up</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorMovePageDown()">▼ Move Down</button>
+        </div>
+      </div>
+      <div class="sidebar-section" style="margin-top:0">
+        <h3>Zoom</h3>
+        <div style="display:flex;gap:5px;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="pdfZoom(-0.1)">−</button>
+          <span id="pdfZoomLabel" style="font-size:.8rem;min-width:40px;text-align:center">100%</span>
+          <button class="btn btn-ghost btn-sm" onclick="pdfZoom(0.1)">+</button>
+        </div>
+      </div>
+      <div class="sidebar-section" style="margin-top:0">
+        <h3>AI Tools</h3>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorRunOcrOnPage()">🔍 OCR This Page</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorRemoveBg()">🧼 Remove Background</button>
+          <button class="btn btn-ghost btn-sm" onclick="pdfEditorAiClean()">✨ AI Clean Text</button>
+        </div>
+      </div>
+      <div class="sidebar-section" style="margin-top:0">
+        <h3>Export</h3>
+        <button class="btn btn-primary btn-sm" style="width:100%" onclick="pdfEditorExport()">⬇ Export PDF</button>
       </div>
     </div>
 
@@ -2191,9 +2526,28 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
           <span id="editorSaveStatus" style="font-size:.75rem;color:var(--muted)">All changes saved</span>
           <span id="editorWordCount" style="font-size:.75rem;color:var(--muted);margin-left:12px">0 words</span>
         </div>
-        <div style="display:flex;gap:6px;margin-left:auto">
-          <button class="btn btn-ghost btn-sm" onclick="editorExportTxt()" title="Export as TXT">⬇ TXT</button>
-          <button class="btn btn-ghost btn-sm" onclick="editorExportHtml()" title="Export as HTML">⬇ HTML</button>
+        <div style="display:flex;gap:6px;margin-left:auto;align-items:center">
+          <!-- Text import -->
+          <input type="file" id="editorImportFile" accept=".txt,.html,.htm,.md,.rtf,.csv,.json,.xml,.log" style="display:none" onchange="editorImportFile(this)"/>
+          <!-- Image/PDF import via OCR -->
+          <input type="file" id="editorImportOcrFile" accept=".jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp,.pdf" style="display:none" onchange="editorImportViaOcr(this)"/>
+          <div style="position:relative;display:inline-flex">
+            <button class="btn btn-ghost btn-sm" onclick="toggleEditorImportMenu()" title="Import document">⬆ Import ▾</button>
+            <div id="editorImportMenu" style="display:none;position:absolute;top:110%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:200;min-width:180px;box-shadow:0 4px 16px #0006">
+              <button class="editor-export-item" onclick="document.getElementById('editorImportFile').click();document.getElementById('editorImportMenu').style.display='none'">📄 Text / HTML / Markdown</button>
+              <button class="editor-export-item" onclick="document.getElementById('editorImportOcrFile').click();document.getElementById('editorImportMenu').style.display='none'">🔍 Image / PDF via OCR</button>
+            </div>
+          </div>
+          <div style="position:relative;display:inline-flex">
+            <button class="btn btn-ghost btn-sm" onclick="toggleEditorExportMenu()" title="Export document">⬇ Export ▾</button>
+            <div id="editorExportMenu" style="display:none;position:absolute;top:110%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:200;min-width:160px;box-shadow:0 4px 16px #0006">
+              <button class="editor-export-item" onclick="editorExportTxt()">📄 Plain Text (.txt)</button>
+              <button class="editor-export-item" onclick="editorExportHtml()">🌐 HTML (.html)</button>
+              <button class="editor-export-item" onclick="editorExportMarkdown()">📝 Markdown (.md)</button>
+              <button class="editor-export-item" onclick="editorExportRtf()">📋 Rich Text (.rtf)</button>
+              <button class="editor-export-item" onclick="editorExportDocx()">📘 Word Document (.docx)</button>
+            </div>
+          </div>
           <button class="btn btn-primary btn-sm" onclick="saveEditorDocument()">💾 Save</button>
         </div>
       </div>
@@ -2265,7 +2619,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         </div>
 
         <!-- AI Panel (right side) -->
-        <div id="editorAiPanel">
+        <div id="editorAiPanel" class="open">
           <div style="font-weight:700;font-size:.9rem;margin-bottom:12px;display:flex;align-items:center;gap:8px">
             ✦ AI Assistant
             <button onclick="toggleEditorAiPanel()" style="margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem">✕</button>
@@ -2295,24 +2649,9 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
 
           <div class="editor-toolbar-sep" style="margin:10px 0"></div>
 
-          <!-- Quick command presets -->
-          <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.07em">Quick Commands</div>
-          <div id="editorAiPresets">
-            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite this as a polished book chapter with smooth narrative flow and elegant prose.')">📖 Rewrite as book chapter</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Fix all grammar, spelling, and punctuation errors. Keep the original meaning and style.')">✏️ Fix grammar &amp; spelling</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Make the text more formal and professional.')">🎩 Make formal</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Make the text more natural and conversational.')">💬 Make conversational</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Expand this text with more detail, examples, and descriptions.')">📝 Expand &amp; elaborate</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Condense this text to be shorter and more concise while keeping key points.')">✂️ Condense</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Improve the flow and transitions between paragraphs.')">🔄 Improve flow</button>
-            <button class="editor-ai-preset" onclick="editorAiPreset('Translate this text to English.')">🌐 Translate to English</button>
-          </div>
-
-          <div class="editor-toolbar-sep" style="margin:10px 0"></div>
-
           <!-- Custom instruction -->
           <div class="form-group">
-            <label>Custom instruction</label>
+            <label>Instruction</label>
             <textarea id="editorAiInstruction" rows="4" placeholder="e.g. Rewrite in the style of Hemingway, add chapter headings, fix the translation…" style="resize:vertical"></textarea>
           </div>
 
@@ -2336,6 +2675,37 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
               <button class="btn btn-ghost btn-sm" style="flex:1" onclick="editorAiReject()">✕ Reject</button>
             </div>
           </div>
+
+          <div class="editor-toolbar-sep" style="margin:12px 0"></div>
+
+          <!-- Quick command presets -->
+          <div style="font-size:.72rem;color:var(--muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.07em">Quick Commands</div>
+          <div id="editorAiPresets">
+            <div style="font-size:.7rem;color:var(--muted);margin:6px 0 3px;font-weight:600">📚 Book &amp; Story</div>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite this as a polished book chapter with smooth narrative flow and elegant prose.')">📖 Rewrite as book chapter</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Add a compelling chapter title and opening hook to draw the reader in.')">🎣 Add chapter title &amp; hook</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite this as a captivating prologue that sets the mood and intrigues the reader.')">📜 Write as prologue</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Add rich sensory details, world-building descriptions, and deeper character motivation.')">🌍 Add depth &amp; world-building</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Improve the dialogue to sound more natural and reveal character personality.')">💬 Improve dialogue</button>
+
+            <div style="font-size:.7rem;color:var(--muted);margin:8px 0 3px;font-weight:600">📑 Structure &amp; Format</div>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Add clear headings, subheadings, and a table of contents at the top.')">📋 Add headings &amp; TOC</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Create an index of key terms and a glossary of important concepts at the end.')">🔖 Create index / glossary</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Split this text into logical sections with clear separators and section titles.')">✂️ Split into sections</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Add a short preface at the beginning and a brief epilogue at the end.')">📘 Add preface &amp; epilogue</button>
+
+            <div style="font-size:.7rem;color:var(--muted);margin:8px 0 3px;font-weight:600">✨ Style &amp; Polish</div>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Fix all grammar, spelling, and punctuation errors. Keep the original meaning and style.')">✏️ Fix grammar &amp; spelling</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite in the style of Ernest Hemingway: short declarative sentences, iceberg theory, understated emotion.')">🥃 Hemingway style</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite in the style of Charles Dickens: vivid descriptions, social commentary, rich Victorian prose.')">🎩 Dickens style</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Rewrite in a formal academic style with proper citations format and scholarly tone.')">🎓 Make academic</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Condense this text to roughly half its length while preserving all key points.')">🗜️ Condense 50%</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Improve the flow and transitions between paragraphs so the text reads smoothly.')">🔄 Improve flow</button>
+
+            <div style="font-size:.7rem;color:var(--muted);margin:8px 0 3px;font-weight:600">🌐 Translation</div>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Translate this text to English, preserving the original tone and style.')">🌐 Translate to English</button>
+            <button class="editor-ai-preset" onclick="editorAiPreset('Fix translation artifacts, awkward phrasing, and unnatural sentences so it reads like native English.')">🔧 Fix translation artifacts</button>
+          </div>
         </div>
       </div>
 
@@ -2346,7 +2716,140 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <button onclick="editorAiBubbleRun('Make this text more formal and polished.')">🎩 Formal</button>
         <button onclick="toggleEditorAiPanel()">⋯ More</button>
       </div>
+
+      <!-- OCR Import progress overlay -->
+      <div id="editorOcrImportOverlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.65);z-index:500;align-items:center;justify-content:center;flex-direction:column;gap:16px">
+        <div style="background:var(--surface);border-radius:12px;padding:32px 40px;text-align:center;min-width:280px;box-shadow:0 8px 40px #0008">
+          <div style="font-size:2rem;margin-bottom:12px">🔍</div>
+          <div style="font-weight:700;font-size:1rem;margin-bottom:8px">Extracting text via OCR</div>
+          <div id="editorOcrImportStatus" style="font-size:.85rem;color:var(--muted);margin-bottom:4px">Preparing…</div>
+          <div id="editorOcrImportProgress" style="font-size:.78rem;color:var(--muted);margin-bottom:20px"></div>
+          <button class="btn btn-ghost btn-sm" onclick="editorCancelOcrImport()">Cancel</button>
+        </div>
+      </div>
     </div><!-- /page-editor -->
+
+    <!-- ══ PAGE: PDF Editor ══ -->
+    <div class="page" id="page-pdfeditor" style="display:none">
+
+      <!-- Top toolbar -->
+      <div id="pdfEditorTopBar">
+        <!-- File ops -->
+        <button class="pdf-tb-btn" onclick="pdfEditorNewFromPdf()">📂 Open PDF</button>
+        <button class="pdf-tb-btn" onclick="pdfEditorNewBlank()">📄 New</button>
+        <button class="pdf-tb-btn" onclick="pdfEditorShowProjects()">📋 Projects</button>
+        <button class="pdf-tb-btn" onclick="pdfEditorSave()">💾 Save</button>
+        <button class="pdf-tb-btn" onclick="pdfEditorExport()">⬇ Export PDF</button>
+        <div class="tb-sep"></div>
+
+        <!-- Text formatting -->
+        <select id="pdfFontFamily" onchange="pdfFormatSelected('fontFamily',this.value)" title="Font family" style="width:110px">
+          <option value="Georgia">Georgia</option>
+          <option value="Arial">Arial</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Trebuchet MS">Trebuchet MS</option>
+          <option value="Arabic">Arabic (عربي)</option>
+          <option value="Tahoma">Tahoma</option>
+        </select>
+        <input type="number" id="pdfFontSize" value="12" min="6" max="144" style="width:52px" onchange="pdfFormatSelected('fontSize',+this.value)" title="Font size"/>
+        <button class="pdf-tb-btn" id="pdfBoldBtn" onclick="pdfToggleFormat('bold')" title="Bold"><b>B</b></button>
+        <button class="pdf-tb-btn" id="pdfItalicBtn" onclick="pdfToggleFormat('italic')" title="Italic"><i>I</i></button>
+        <button class="pdf-tb-btn" id="pdfUnderlineBtn" onclick="pdfToggleFormat('underline')" title="Underline"><u>U</u></button>
+        <div class="tb-sep"></div>
+
+        <!-- Align -->
+        <button class="pdf-tb-btn" onclick="pdfFormatSelected('textAlign','left')" title="Align left">⬅</button>
+        <button class="pdf-tb-btn" onclick="pdfFormatSelected('textAlign','center')" title="Center">≡</button>
+        <button class="pdf-tb-btn" onclick="pdfFormatSelected('textAlign','right')" title="Align right">➡</button>
+        <div class="tb-sep"></div>
+
+        <!-- Insert -->
+        <button class="pdf-tb-btn" onclick="pdfInsertText()" title="Add text box">T+ Text</button>
+        <button class="pdf-tb-btn" onclick="pdfInsertImage()" title="Insert image">🖼 Image</button>
+        <button class="pdf-tb-btn" onclick="pdfInsertShape()" title="Insert rectangle">▭ Shape</button>
+        <div class="tb-sep"></div>
+
+        <!-- Edit actions -->
+        <button class="pdf-tb-btn" onclick="pdfDeleteSelected()" title="Delete selected">🗑 Delete</button>
+        <button class="pdf-tb-btn" onclick="pdfUndo()" title="Undo">↩ Undo</button>
+        <div class="tb-sep"></div>
+
+        <!-- Color -->
+        <label style="font-size:.75rem;color:var(--muted)">Color</label>
+        <input type="color" id="pdfTextColor" value="#000000" onchange="pdfFormatSelected('color',this.value)" title="Text color" style="width:28px;height:28px;border:none;background:none;cursor:pointer;padding:0"/>
+        <div class="tb-sep"></div>
+
+        <!-- Doc title -->
+        <span id="pdfDocTitle" style="font-size:.85rem;font-weight:600;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" ondblclick="pdfRenameDocument()" title="Double-click to rename">Untitled Document</span>
+        <span id="pdfSaveStatus" style="font-size:.72rem;color:var(--muted);margin-left:6px"></span>
+      </div>
+
+      <!-- Main workspace -->
+      <div id="pdfEditorWorkspace">
+
+        <!-- Left: page thumbnails -->
+        <div id="pdfThumbnailPanel" ondragover="event.preventDefault()" ondrop="pdfThumbDrop(event)">
+          <div id="pdfThumbList" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:.75rem" onclick="pdfEditorAddPage()">+ Add Page</button>
+        </div>
+
+        <!-- Center: editable canvas -->
+        <div id="pdfCanvasArea" onclick="pdfCanvasAreaClick(event)">
+          <div id="pdfPageCanvas">
+            <!-- Elements rendered here dynamically -->
+          </div>
+        </div>
+
+        <!-- Right: properties -->
+        <div id="pdfPropertiesPanel">
+          <h4>Properties</h4>
+          <div id="pdfPropsNone" style="color:var(--muted);font-size:.78rem">Select an element to edit its properties.</div>
+          <div id="pdfPropsEl" style="display:none">
+            <div class="pdf-prop-row"><label>X</label><input type="number" id="ppX" onchange="pdfPropChange('x',+this.value)"/></div>
+            <div class="pdf-prop-row"><label>Y</label><input type="number" id="ppY" onchange="pdfPropChange('y',+this.value)"/></div>
+            <div class="pdf-prop-row"><label>W</label><input type="number" id="ppW" onchange="pdfPropChange('width',+this.value)"/></div>
+            <div class="pdf-prop-row"><label>H</label><input type="number" id="ppH" onchange="pdfPropChange('height',+this.value)"/></div>
+            <div id="pdfTextProps">
+              <div class="editor-toolbar-sep" style="margin:8px 0"></div>
+              <h4>Text</h4>
+              <div class="pdf-prop-row"><label>Size</label><input type="number" id="ppFontSize" onchange="pdfPropChange('fontSize',+this.value)"/></div>
+              <div class="pdf-prop-row"><label>Bold</label><input type="checkbox" id="ppBold" onchange="pdfPropChange('bold',this.checked)"/></div>
+              <div class="pdf-prop-row"><label>Italic</label><input type="checkbox" id="ppItalic" onchange="pdfPropChange('italic',this.checked)"/></div>
+            </div>
+          </div>
+          <div class="editor-toolbar-sep" style="margin:12px 0"></div>
+          <h4>Page</h4>
+          <div id="pdfPageInfo" style="font-size:.75rem;color:var(--muted);line-height:1.7"></div>
+          <div class="editor-toolbar-sep" style="margin:12px 0"></div>
+          <h4>AI Assist</h4>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn btn-ghost btn-sm" onclick="pdfEditorRunOcrOnPage()" style="font-size:.75rem">🔍 OCR This Page</button>
+            <button class="btn btn-ghost btn-sm" onclick="pdfEditorRemoveBg()" style="font-size:.75rem">🧼 Remove Background</button>
+            <button class="btn btn-ghost btn-sm" onclick="pdfEditorAiClean()" style="font-size:.75rem">✨ AI Clean Text</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading overlay -->
+      <div id="pdfLoadingOverlay">
+        <div class="spinner"></div>
+        <div id="pdfLoadingMsg" style="color:#fff;font-size:.9rem">Loading…</div>
+      </div>
+
+      <!-- Projects list overlay -->
+      <div id="pdfProjectListOverlay">
+        <div id="pdfProjectListModal">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+            <h3 style="font-size:1rem;font-weight:700">My PDF Documents</h3>
+            <button onclick="pdfProjectListClose()" style="margin-left:auto;background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer">✕</button>
+          </div>
+          <div id="pdfProjectListContent"></div>
+        </div>
+      </div>
+
+    </div><!-- /page-pdfeditor -->
 
     <!-- ══ PAGE: History ══ -->
     <div class="page" id="page-history">
@@ -4088,24 +4591,28 @@ function initTranslationUi() {
 // PAGE NAVIGATION
 // ═══════════════════════════════════════════════════════
 function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  // Only toggle the header top-nav buttons, not the settings sidebar nav
-  document.querySelectorAll('header > nav > button').forEach(b => {
-    const pages = ['ocr','translator','editor','history','settings'];
-    const idx = pages.indexOf(name);
-    b.classList.remove('active');
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
   });
+  const target = document.getElementById('page-' + name);
+  target.style.display = '';
+  target.classList.add('active');
+
   const headerNavBtns = Array.from(document.querySelectorAll('header > nav > button'));
-  const pages = ['ocr','translator','editor','history','settings'];
+  const pages = ['ocr','translator','editor','pdfeditor','history','settings'];
+  headerNavBtns.forEach(b => b.classList.remove('active'));
   const idx = pages.indexOf(name);
   if (idx >= 0 && headerNavBtns[idx]) headerNavBtns[idx].classList.add('active');
-  document.getElementById('sidebar-ocr').style.display = name === 'ocr' ? 'block' : 'none';
+
+  document.getElementById('sidebar-ocr').style.display        = name === 'ocr'        ? 'block' : 'none';
   document.getElementById('sidebar-translation').style.display = name === 'translator' ? 'block' : 'none';
-  document.getElementById('sidebar-settings').style.display = name === 'settings' ? 'block' : 'none';
-  document.getElementById('sidebar-generic').style.display = ['editor', 'history'].includes(name) ? 'block' : 'none';
-  if (name === 'history')  loadHistory();
-  if (name === 'settings') { loadSettingsScreen(); }
+  document.getElementById('sidebar-settings').style.display   = name === 'settings'   ? 'block' : 'none';
+  document.getElementById('sidebar-generic').style.display    = name === 'history'    ? 'block' : 'none';
+  document.getElementById('sidebar-pdfeditor').style.display  = name === 'pdfeditor'  ? 'block' : 'none';
+
+  if (name === 'history')    loadHistory();
+  if (name === 'settings')   loadSettingsScreen();
   if (name === 'translator' && currentTranslationProjectId) loadTranslationProject(currentTranslationProjectId);
   if (name === 'editor' && currentEditorDocumentId) loadEditorDocument(currentEditorDocumentId);
 }
@@ -5855,7 +6362,6 @@ async function exportTranslation() {
 // RICH EDITOR
 // ═══════════════════════════════════════════════════════
 
-let editorSaveTimer = null;
 let _editorAiScope = 'selection';
 let _editorAiPendingHtml = null;   // AI suggestion waiting for accept/reject
 let _editorAiPendingRange = null;
@@ -5972,19 +6478,506 @@ function editorExecHeading(tag) {
   }
 }
 
-// ── Export ───────────────────────────────────────────────────────────────────
-function editorExportTxt() {
+// ── Import ────────────────────────────────────────────────────────────────────
+function editorImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const body = document.getElementById('editorBody');
+    if (!body) return;
+    const content = e.target.result;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === 'html' || ext === 'htm') {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(content, 'text/html');
+      body.innerHTML = doc.body ? doc.body.innerHTML : content;
+    } else if (ext === 'md') {
+      body.innerHTML = _mdToHtml(content);
+    } else if (ext === 'rtf') {
+      // Strip RTF control words — best-effort plain text extraction
+      const text = content
+        .replace(/\{\\[a-z*]+[^}]*\}/gi, '')
+        .replace(/\\[a-z]+[-\d]* ?/gi, '')
+        .replace(/[{}\\]/g, '')
+        .trim();
+      body.innerHTML = text
+        .split(/\n{2,}/)
+        .map(p => `<p>${escHtml(p.trim()).replace(/\n/g, '<br>')}</p>`)
+        .filter(p => p !== '<p></p>')
+        .join('');
+    } else if (ext === 'csv') {
+      // Render CSV as an HTML table
+      const rows = content.trim().split('\n').map(r => r.split(','));
+      const thead = rows[0].map(h => `<th style="border:1px solid var(--border);padding:4px 8px">${escHtml(h.trim())}</th>`).join('');
+      const tbody = rows.slice(1).map(row =>
+        `<tr>${row.map(c => `<td style="border:1px solid var(--border);padding:4px 8px">${escHtml(c.trim())}</td>`).join('')}</tr>`
+      ).join('');
+      body.innerHTML = `<table style="border-collapse:collapse;width:100%"><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>`;
+    } else if (ext === 'json') {
+      body.innerHTML = `<pre style="white-space:pre-wrap;font-family:monospace">${escHtml(JSON.stringify(JSON.parse(content), null, 2))}</pre>`;
+    } else if (ext === 'xml') {
+      body.innerHTML = `<pre style="white-space:pre-wrap;font-family:monospace">${escHtml(content)}</pre>`;
+    } else {
+      // Plain text / log / other
+      body.innerHTML = content
+        .split(/\n{2,}/)
+        .map(p => `<p>${escHtml(p.trim()).replace(/\n/g, '<br>')}</p>`)
+        .filter(p => p !== '<p></p>')
+        .join('');
+    }
+
+    const titleEl = document.getElementById('editorDocTitle');
+    if (titleEl) titleEl.textContent = file.name.replace(/\.[^.]+$/, '');
+    onEditorBodyInput();
+    saveEditorDocument();
+    showToast(`Imported "${file.name}"`, 'ok');
+  };
+  reader.readAsText(file, 'utf-8');
+  input.value = '';
+}
+
+// ── Import via OCR (images / PDF) ─────────────────────────────────────────────
+let _editorOcrImportUnlisten = null;
+
+async function editorImportViaOcr(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+
+  if (!window.electronAPI) {
+    showToast('OCR import requires the desktop app.', 'error');
+    return;
+  }
+
+  // Show progress overlay
+  const overlay = document.getElementById('editorOcrImportOverlay');
+  const statusEl = document.getElementById('editorOcrImportStatus');
+  const progressEl = document.getElementById('editorOcrImportProgress');
+  if (overlay) overlay.style.display = 'flex';
+  if (statusEl) statusEl.textContent = 'Preparing…';
+  if (progressEl) progressEl.textContent = '';
+
+  try {
+    // Read file as ArrayBuffer and send to main process
+    const bytes = await file.arrayBuffer();
+    const snapshot = await window.electronAPI.ocr.prepareProjectBuffer({
+      name: file.name,
+      bytes: Array.from(new Uint8Array(bytes)),
+    });
+
+    const projectId = snapshot.id;
+
+    // Read OCR settings from main OCR page (fall back to sensible defaults)
+    const provider = document.getElementById('providerSelect')?.value || 'paddleocr';
+    const model    = document.getElementById('modelSelect')?.value    || '';
+    const language = document.getElementById('langSelect')?.value     || 'en';
+    const ocrMode  = document.getElementById('ocrModeSelect')?.value  || 'standard';
+    const ollamaBaseUrl = document.getElementById('ollamaBaseUrl')?.value?.trim() || 'http://localhost:11434';
+
+    if (statusEl) statusEl.textContent = 'Running OCR…';
+
+    // Listen for state updates
+    let done = false;
+    if (_editorOcrImportUnlisten) { _editorOcrImportUnlisten(); _editorOcrImportUnlisten = null; }
+    _editorOcrImportUnlisten = window.electronAPI.ocr.onStateUpdated(state => {
+      if (state.projectId !== projectId) return;
+      const pages = state.pages || [];
+      const done_pages = pages.filter(p => p.status === 'completed' || p.status === 'failed').length;
+      if (progressEl) progressEl.textContent = pages.length ? `${done_pages} / ${pages.length} pages` : '';
+      if (statusEl) statusEl.textContent = `Running OCR… (${state.latestRun?.state || ''})`;
+
+      const runState = state.latestRun?.state || '';
+      if (runState === 'completed' || runState === 'stopped' || runState === 'failed') {
+        if (done) return;
+        done = true;
+        _editorOcrImportUnlisten();
+        _editorOcrImportUnlisten = null;
+        _editorFinishOcrImport(state, file.name);
+      }
+    });
+
+    // Start the run
+    await window.electronAPI.ocr.startRun({
+      projectId,
+      provider,
+      model,
+      language,
+      ocrMode,
+      ollamaBaseUrl,
+      concurrency: 3,
+    });
+
+    window.electronAPI.ocrStarted();
+
+  } catch (err) {
+    if (overlay) overlay.style.display = 'none';
+    showToast(`OCR import failed: ${err.message}`, 'error');
+    console.error('[editor] OCR import error', err);
+  }
+}
+
+function _editorFinishOcrImport(state, fileName) {
+  const overlay = document.getElementById('editorOcrImportOverlay');
+  if (overlay) overlay.style.display = 'none';
+
+  const pages = (state.pages || []).filter(p => p.status === 'completed');
+  if (!pages.length) {
+    showToast('OCR produced no text.', 'error');
+    return;
+  }
+
   const body = document.getElementById('editorBody');
-  const text = body ? body.innerText : '';
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  _editorDownload(blob, 'document.txt');
+  if (!body) return;
+
+  // Build HTML from OCR page text
+  const html = pages
+    .map(p => (p.text || '').trim())
+    .filter(Boolean)
+    .flatMap(t => t.split(/\n{2,}/))
+    .map(para => `<p>${escHtml(para.trim()).replace(/\n/g, '<br>')}</p>`)
+    .filter(p => p !== '<p></p>')
+    .join('');
+
+  body.innerHTML = html || '<p></p>';
+
+  const titleEl = document.getElementById('editorDocTitle');
+  if (titleEl) titleEl.textContent = fileName.replace(/\.[^.]+$/, '');
+  onEditorBodyInput();
+  saveEditorDocument();
+  showToast(`OCR import complete — ${pages.length} page(s) extracted.`, 'ok');
+}
+
+function editorCancelOcrImport() {
+  const overlay = document.getElementById('editorOcrImportOverlay');
+  if (overlay) overlay.style.display = 'none';
+  if (_editorOcrImportUnlisten) { _editorOcrImportUnlisten(); _editorOcrImportUnlisten = null; }
+}
+
+function _mdToHtml(md) {
+  return md
+    .split(/\n{2,}/)
+    .map(block => {
+      block = block.trim();
+      if (/^### /.test(block)) return `<h3>${escHtml(block.slice(4))}</h3>`;
+      if (/^## /.test(block))  return `<h2>${escHtml(block.slice(3))}</h2>`;
+      if (/^# /.test(block))   return `<h1>${escHtml(block.slice(2))}</h1>`;
+      if (/^- /.test(block) || /^\* /.test(block)) {
+        const items = block.split('\n').map(l => `<li>${escHtml(l.replace(/^[-*] /, ''))}</li>`).join('');
+        return `<ul>${items}</ul>`;
+      }
+      if (/^\d+\. /.test(block)) {
+        const items = block.split('\n').map(l => `<li>${escHtml(l.replace(/^\d+\. /, ''))}</li>`).join('');
+        return `<ol>${items}</ol>`;
+      }
+      let html = escHtml(block).replace(/\n/g, '<br>');
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+      return `<p>${html}</p>`;
+    })
+    .join('');
+}
+
+// ── Import menu toggle ────────────────────────────────────────────────────────
+function toggleEditorImportMenu() {
+  const menu = document.getElementById('editorImportMenu');
+  if (!menu) return;
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => {
+      document.addEventListener('click', function _close(e) {
+        if (!menu.contains(e.target)) { menu.style.display = 'none'; }
+        document.removeEventListener('click', _close);
+      });
+    }, 10);
+  }
+}
+
+// ── Export menu toggle ────────────────────────────────────────────────────────
+function toggleEditorExportMenu() {
+  const menu = document.getElementById('editorExportMenu');
+  if (!menu) return;
+  const isOpen = menu.style.display !== 'none';
+  menu.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => {
+      document.addEventListener('click', function _close(e) {
+        if (!menu.contains(e.target)) { menu.style.display = 'none'; }
+        document.removeEventListener('click', _close);
+      });
+    }, 10);
+  }
+}
+
+// ── Export ───────────────────────────────────────────────────────────────────
+function _editorFilename(ext) {
+  const title = (document.getElementById('editorDocTitle')?.textContent || 'document').trim();
+  return `${title}.${ext}`;
+}
+
+function editorExportTxt() {
+  document.getElementById('editorExportMenu').style.display = 'none';
+  const body = document.getElementById('editorBody');
+  _editorDownload(new Blob([body ? body.innerText : ''], { type: 'text/plain;charset=utf-8' }), _editorFilename('txt'));
 }
 
 function editorExportHtml() {
+  document.getElementById('editorExportMenu').style.display = 'none';
   const body = document.getElementById('editorBody');
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>body{font-family:Georgia,serif;max-width:800px;margin:60px auto;line-height:1.8;color:#1a1a2e}h1{font-size:2rem}h2{font-size:1.5rem}h3{font-size:1.2rem}</style></head><body>${body ? body.innerHTML : ''}</body></html>`;
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  _editorDownload(blob, 'document.html');
+  const title = document.getElementById('editorDocTitle')?.textContent || 'Document';
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>${escHtml(title)}</title>
+<style>body{font-family:Georgia,serif;max-width:800px;margin:60px auto;line-height:1.8;color:#1a1a2e}h1{font-size:2rem;margin:1.6em 0 .4em}h2{font-size:1.5rem}h3{font-size:1.2rem}p{margin:0 0 1em}ul,ol{margin:0 0 1em 1.5em}</style>
+</head><body>
+<h1>${escHtml(title)}</h1>
+${body ? body.innerHTML : ''}
+</body></html>`;
+  _editorDownload(new Blob([html], { type: 'text/html;charset=utf-8' }), _editorFilename('html'));
+}
+
+function editorExportMarkdown() {
+  document.getElementById('editorExportMenu').style.display = 'none';
+  const body = document.getElementById('editorBody');
+  if (!body) return;
+  const md = _htmlToMarkdown(body.innerHTML);
+  _editorDownload(new Blob([md], { type: 'text/markdown;charset=utf-8' }), _editorFilename('md'));
+}
+
+function _htmlToMarkdown(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  const lines = [];
+  div.childNodes.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.textContent.trim()) lines.push(node.textContent.trim(), '');
+      return;
+    }
+    const tag = node.nodeName.toLowerCase();
+    const text = (node.innerText || node.textContent || '').trim();
+    if (!text && tag !== 'br') return;
+    if      (tag === 'h1') { lines.push(`# ${text}`, ''); }
+    else if (tag === 'h2') { lines.push(`## ${text}`, ''); }
+    else if (tag === 'h3') { lines.push(`### ${text}`, ''); }
+    else if (tag === 'p' || tag === 'div') { lines.push(text, ''); }
+    else if (tag === 'ul') {
+      node.querySelectorAll('li').forEach(li => lines.push(`- ${(li.innerText||li.textContent).trim()}`));
+      lines.push('');
+    } else if (tag === 'ol') {
+      node.querySelectorAll('li').forEach((li, i) => lines.push(`${i+1}. ${(li.innerText||li.textContent).trim()}`));
+      lines.push('');
+    } else if (tag === 'br') { lines.push(''); }
+    else { lines.push(text, ''); }
+  });
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function editorExportRtf() {
+  document.getElementById('editorExportMenu').style.display = 'none';
+  const body = document.getElementById('editorBody');
+  if (!body) return;
+  const paragraphs = [];
+  body.querySelectorAll('p, h1, h2, h3, li, div').forEach(el => {
+    const t = (el.innerText || el.textContent || '').trim();
+    if (!t) return;
+    const tag = el.nodeName.toLowerCase();
+    if      (tag === 'h1') paragraphs.push(`\\pard\\sb240\\sa120\\b\\fs44 ${_rtfEscape(t)}\\b0\\par`);
+    else if (tag === 'h2') paragraphs.push(`\\pard\\sb200\\sa80\\b\\fs36 ${_rtfEscape(t)}\\b0\\par`);
+    else if (tag === 'h3') paragraphs.push(`\\pard\\sb160\\sa60\\b\\fs28 ${_rtfEscape(t)}\\b0\\par`);
+    else                   paragraphs.push(`\\pard\\sa160\\fs24 ${_rtfEscape(t)}\\par`);
+  });
+  const rtf = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Georgia;}}\\f0\n${paragraphs.join('\n')}\n}`;
+  _editorDownload(new Blob([rtf], { type: 'application/rtf' }), _editorFilename('rtf'));
+}
+
+function _rtfEscape(str) {
+  return str
+    .replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}')
+    .replace(/[^\x00-\x7F]/g, c => `\\u${c.charCodeAt(0)}?`);
+}
+
+// ── DOCX export (Office Open XML, no library needed) ─────────────────────────
+function editorExportDocx() {
+  document.getElementById('editorExportMenu').style.display = 'none';
+  const body = document.getElementById('editorBody');
+  const title = document.getElementById('editorDocTitle')?.textContent || 'Document';
+  if (!body) return;
+
+  // Build WordprocessingML paragraphs
+  const wParagraphs = [];
+  body.querySelectorAll('p, h1, h2, h3, h4, li, div, pre').forEach(el => {
+    const tag = el.nodeName.toLowerCase();
+    const text = (el.innerText || el.textContent || '').trim();
+    if (!text) return;
+
+    let styleId = 'Normal';
+    if (tag === 'h1') styleId = 'Heading1';
+    else if (tag === 'h2') styleId = 'Heading2';
+    else if (tag === 'h3' || tag === 'h4') styleId = 'Heading3';
+    else if (tag === 'li') styleId = 'ListParagraph';
+
+    const xmlText = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+    wParagraphs.push(
+      `<w:p><w:pPr><w:pStyle w:val="${styleId}"/></w:pPr><w:r><w:t xml:space="preserve">${xmlText}</w:t></w:r></w:p>`
+    );
+  });
+
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+ xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<w:body>
+${wParagraphs.join('\n')}
+<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+</w:body></w:document>`;
+
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/>
+    <w:rPr><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/>
+    <w:pPr><w:outlineLvl w:val="0"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="52"/><w:szCs w:val="52"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/>
+    <w:pPr><w:outlineLvl w:val="1"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/>
+    <w:pPr><w:outlineLvl w:val="2"/></w:pPr>
+    <w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>
+  <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/>
+    <w:pPr><w:ind w:left="720"/></w:pPr>
+    <w:rPr><w:sz w:val="24"/></w:rPr></w:style>
+</w:styles>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+  const appRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`;
+
+  // Build a real DOCX ZIP inline (no library needed)
+  const files = [
+    { name: '[Content_Types].xml', data: contentTypesXml },
+    { name: '_rels/.rels',          data: appRelsXml },
+    { name: 'word/document.xml',    data: docXml },
+    { name: 'word/styles.xml',      data: stylesXml },
+    { name: 'word/_rels/document.xml.rels', data: relsXml },
+  ];
+  const blob = _buildZipBlob(files);
+  _editorDownload(blob, _editorFilename('docx'));
+}
+
+// ── Minimal ZIP builder (for DOCX export, no external library) ────────────────
+function _buildZipBlob(files) {
+  // Each file: { name: string, data: string }
+  const enc = new TextEncoder();
+  const localHeaders = [];
+  const centralDir = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const dataBytes = enc.encode(f.data);
+    const crc = _crc32(dataBytes);
+    const size = dataBytes.length;
+
+    // Local file header
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0,  0x04034b50, true); // signature
+    lv.setUint16(4,  20, true);         // version needed
+    lv.setUint16(6,  0,  true);         // flags
+    lv.setUint16(8,  0,  true);         // compression: stored
+    lv.setUint16(10, 0,  true);         // mod time
+    lv.setUint16(12, 0,  true);         // mod date
+    lv.setUint32(14, crc,  true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    lh.set(nameBytes, 30);
+
+    localHeaders.push(lh, dataBytes);
+
+    // Central directory record
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0,  0x02014b50, true);
+    cv.setUint16(4,  20, true);
+    cv.setUint16(6,  20, true);
+    cv.setUint16(8,  0,  true);
+    cv.setUint16(10, 0,  true);
+    cv.setUint16(12, 0,  true);
+    cv.setUint16(14, 0,  true);
+    cv.setUint32(16, crc,  true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    centralDir.push(cd);
+
+    offset += 30 + nameBytes.length + size;
+  }
+
+  const cdStart = offset;
+  const cdBytes = _concat(centralDir);
+
+  // End of central directory
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8,  files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cdBytes.length, true);
+  ev.setUint32(16, cdStart, true);
+  ev.setUint16(20, 0, true);
+
+  const allParts = [...localHeaders, cdBytes, eocd];
+  return new Blob([_concat(allParts)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+function _concat(arrays) {
+  const total = arrays.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const a of arrays) { out.set(a, pos); pos += a.length; }
+  return out;
+}
+
+function _crc32(data) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i];
+    for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
 function _editorDownload(blob, filename) {
@@ -8197,13 +9190,719 @@ async function rerunWithProvider() {
   await restartOCR();
 }
 
-// Auto-show setup wizard on first launch (if not dismissed)
-window.addEventListener('DOMContentLoaded', () => {
-  if (!isElectronApp) return;
-  if (localStorage.getItem(SETUP_DISMISSED_KEY)) return;
-  // Delay slightly so the rest of the UI loads first
-  setTimeout(setupOverlayOpen, 800);
+// Setup wizard is available via Settings → Setup Wizard button.
+// Do NOT auto-show on startup — it blocks the UI for users who don't need Python providers.
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PDF EDITOR
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── State ────────────────────────────────────────────────────────────────────
+let _pdfDoc = null;           // full EditableDocument loaded from IPC
+let _pdfCurrentPageIdx = 0;   // index into _pdfDoc.pages
+let _pdfSelectedElId = null;  // id of selected element
+let _pdfZoom = 1;
+let _pdfUndoStack = [];       // simple snapshot undo
+let _pdfSaveTimer = null;
+let _pdfDirty = false;
+
+// ── Drag state ────────────────────────────────────────────────────────────────
+let _pdfDrag = null;   // { type:'move'|'resize', elId, handle, startX, startY, origEl }
+
+// ── API guard ─────────────────────────────────────────────────────────────────
+function _hasDocApi() { return !!(window.electronAPI?.doc); }
+
+// ── Loading overlay ───────────────────────────────────────────────────────────
+function _pdfShowLoading(msg) {
+  const el = document.getElementById('pdfLoadingOverlay');
+  const lbl = document.getElementById('pdfLoadingMsg');
+  if (el) el.classList.add('show');
+  if (lbl) lbl.textContent = msg || 'Loading…';
+}
+function _pdfHideLoading() {
+  document.getElementById('pdfLoadingOverlay')?.classList.remove('show');
+}
+
+// ── Open PDF file ─────────────────────────────────────────────────────────────
+async function pdfEditorNewFromPdf() {
+  if (!_hasDocApi()) { showToast('PDF Editor requires the desktop app.', 'error'); return; }
+  const result = await window.electronAPI.doc.pickPdf();
+  if (result.canceled) return;
+  _pdfShowLoading('Parsing PDF… this may take a moment for large files.');
+  try {
+    const doc = await window.electronAPI.doc.createFromPdf({ filePath: result.filePath });
+    await _pdfLoadDoc(doc);
+    showToast(`Opened "${doc.name}"`, 'ok');
+  } catch (err) {
+    showToast(`Failed to open PDF: ${err.message}`, 'error');
+    console.error('[pdfeditor] open error', err);
+  } finally {
+    _pdfHideLoading();
+  }
+}
+
+// ── New blank document ────────────────────────────────────────────────────────
+async function pdfEditorNewBlank() {
+  if (!_hasDocApi()) { showToast('PDF Editor requires the desktop app.', 'error'); return; }
+  _pdfShowLoading('Creating blank document…');
+  try {
+    const doc = await window.electronAPI.doc.createBlank({ name: 'Untitled Document' });
+    await _pdfLoadDoc(doc);
+  } finally {
+    _pdfHideLoading();
+  }
+}
+
+// ── Load document into editor ─────────────────────────────────────────────────
+async function _pdfLoadDoc(doc) {
+  _pdfDoc = doc;
+  _pdfCurrentPageIdx = 0;
+  _pdfSelectedElId = null;
+  _pdfUndoStack = [];
+  _pdfDirty = false;
+  document.getElementById('pdfDocTitle').textContent = doc.name || 'Untitled';
+  document.getElementById('pdfSaveStatus').textContent = '';
+  _pdfRenderThumbs();
+  _pdfRenderPage();
+  _pdfUpdatePageInfo();
+}
+
+// ── Show projects list ────────────────────────────────────────────────────────
+async function pdfEditorShowProjects() {
+  if (!_hasDocApi()) { showToast('Requires desktop app.', 'error'); return; }
+  const overlay = document.getElementById('pdfProjectListOverlay');
+  const content = document.getElementById('pdfProjectListContent');
+  overlay.classList.add('show');
+  content.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading…</div>';
+  try {
+    const list = await window.electronAPI.doc.list();
+    if (!list.length) {
+      content.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No saved documents yet. Open a PDF or create a blank document.</div>';
+      return;
+    }
+    content.innerHTML = list.map(d => `
+      <div class="pdf-project-item" onclick="pdfProjectOpen('${d.id}')">
+        <div style="font-size:1.3rem">📄</div>
+        <div>
+          <div class="pdf-proj-name">${escHtml(d.name)}</div>
+          <div class="pdf-proj-meta">${d.pageCount} page(s) · ${new Date(d.updatedAt).toLocaleDateString()}</div>
+        </div>
+        <button onclick="event.stopPropagation();pdfProjectDelete('${d.id}')" style="margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem" title="Delete">🗑</button>
+      </div>
+    `).join('');
+  } catch (err) {
+    content.innerHTML = `<div style="color:var(--red)">${escHtml(err.message)}</div>`;
+  }
+}
+
+async function pdfProjectOpen(documentId) {
+  pdfProjectListClose();
+  _pdfShowLoading('Loading document…');
+  try {
+    const doc = await window.electronAPI.doc.get({ documentId });
+    await _pdfLoadDoc(doc);
+  } catch (err) {
+    showToast(`Failed to open: ${err.message}`, 'error');
+  } finally {
+    _pdfHideLoading();
+  }
+}
+
+async function pdfProjectDelete(documentId) {
+  if (!confirm('Delete this document? This cannot be undone.')) return;
+  try {
+    await window.electronAPI.doc.deletDoc({ documentId });
+    showToast('Document deleted.', 'ok');
+    pdfEditorShowProjects();
+  } catch (err) {
+    showToast(`Delete failed: ${err.message}`, 'error');
+  }
+}
+
+function pdfProjectListClose() {
+  document.getElementById('pdfProjectListOverlay')?.classList.remove('show');
+}
+
+// ── Save (auto-debounced) ─────────────────────────────────────────────────────
+function _pdfMarkDirty() {
+  _pdfDirty = true;
+  document.getElementById('pdfSaveStatus').textContent = 'Unsaved changes';
+  clearTimeout(_pdfSaveTimer);
+  _pdfSaveTimer = setTimeout(() => pdfEditorSave(), 2000);
+}
+
+async function pdfEditorSave() {
+  if (!_pdfDoc || !_hasDocApi()) return;
+  try {
+    const saved = await window.electronAPI.doc.update({ document: _pdfDoc });
+    _pdfDoc.updatedAt = saved.updatedAt;
+    _pdfDirty = false;
+    document.getElementById('pdfSaveStatus').textContent = 'Saved';
+    setTimeout(() => {
+      if (!_pdfDirty) document.getElementById('pdfSaveStatus').textContent = '';
+    }, 2000);
+  } catch (err) {
+    document.getElementById('pdfSaveStatus').textContent = 'Save failed';
+    console.error('[pdfeditor] save error', err);
+  }
+}
+
+// ── Export PDF ────────────────────────────────────────────────────────────────
+async function pdfEditorExport() {
+  if (!_pdfDoc || !_hasDocApi()) { showToast('No document open.', 'error'); return; }
+  await pdfEditorSave();
+  _pdfShowLoading('Exporting PDF…');
+  try {
+    const result = await window.electronAPI.doc.exportPdf({ documentId: _pdfDoc.id });
+    if (!result.canceled) showToast(`Exported to ${result.filePath}`, 'ok');
+  } catch (err) {
+    showToast(`Export failed: ${err.message}`, 'error');
+  } finally {
+    _pdfHideLoading();
+  }
+}
+
+// ── Rename ────────────────────────────────────────────────────────────────────
+function pdfRenameDocument() {
+  if (!_pdfDoc) return;
+  const name = prompt('Document name:', _pdfDoc.name);
+  if (name === null) return;
+  _pdfDoc.name = name.trim() || 'Untitled';
+  document.getElementById('pdfDocTitle').textContent = _pdfDoc.name;
+  _pdfMarkDirty();
+}
+
+// ── Zoom ──────────────────────────────────────────────────────────────────────
+function pdfZoom(delta) {
+  _pdfZoom = Math.min(3, Math.max(0.2, _pdfZoom + delta));
+  const canvas = document.getElementById('pdfPageCanvas');
+  if (canvas) canvas.style.transform = `scale(${_pdfZoom})`;
+  document.getElementById('pdfZoomLabel').textContent = Math.round(_pdfZoom * 100) + '%';
+}
+
+// ── Page thumbnail rendering ──────────────────────────────────────────────────
+function _pdfRenderThumbs() {
+  const list = document.getElementById('pdfThumbList');
+  if (!list || !_pdfDoc) return;
+  list.innerHTML = _pdfDoc.pages.map((page, idx) => `
+    <div class="pdf-thumb ${idx === _pdfCurrentPageIdx ? 'active' : ''}"
+         draggable="true"
+         data-page-idx="${idx}"
+         data-page-id="${page.id}"
+         ondragstart="pdfThumbDragStart(event,${idx})"
+         onclick="pdfSelectPage(${idx})">
+      <div class="pdf-thumb-canvas" style="background:#fff;overflow:hidden;position:relative">
+        ${_pdfThumbMiniPreview(page)}
+      </div>
+      <div class="pdf-thumb-num">${idx + 1}</div>
+      <div class="pdf-thumb-actions">
+        <button onclick="event.stopPropagation();pdfEditorAddPage('${page.id}')" title="Add page after">+</button>
+        <button onclick="event.stopPropagation();_pdfRemovePage('${page.id}')" title="Remove page" style="color:var(--red)">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function _pdfThumbMiniPreview(page) {
+  if (!page.elements.length) return '';
+  const scale = 128 / page.width;
+  const elHtml = page.elements.slice(0, 20).map(el => {
+    const s = `left:${el.x*scale}px;top:${el.y*scale}px;width:${el.width*scale}px;height:${el.height*scale}px;position:absolute;overflow:hidden;`;
+    if (el.type === 'text') return `<div style="${s}font-size:${(el.fontSize||12)*scale}px;color:#000;line-height:1.2">${escHtml((el.content||'').slice(0,60))}</div>`;
+    if (el.type === 'shape') return `<div style="${s}border:1px solid #333"></div>`;
+    return '';
+  }).join('');
+  return `<div style="position:absolute;inset:0;overflow:hidden">${elHtml}</div>`;
+}
+
+// ── Page drag-to-reorder ──────────────────────────────────────────────────────
+let _pdfDragThumbIdx = null;
+function pdfThumbDragStart(event, idx) {
+  _pdfDragThumbIdx = idx;
+  event.dataTransfer.effectAllowed = 'move';
+}
+function pdfThumbDrop(event) {
+  event.preventDefault();
+  const target = event.target.closest('[data-page-idx]');
+  if (!target || _pdfDragThumbIdx === null) return;
+  const toIdx = parseInt(target.dataset.pageIdx);
+  if (toIdx === _pdfDragThumbIdx) return;
+  const moved = _pdfDoc.pages.splice(_pdfDragThumbIdx, 1)[0];
+  _pdfDoc.pages.splice(toIdx, 0, moved);
+  _pdfCurrentPageIdx = toIdx;
+  _pdfDragThumbIdx = null;
+  _pdfRenderThumbs();
+  _pdfRenderPage();
+  _pdfMarkDirty();
+}
+
+// ── Select page ───────────────────────────────────────────────────────────────
+function pdfSelectPage(idx) {
+  _pdfCurrentPageIdx = idx;
+  _pdfSelectedElId = null;
+  _pdfRenderThumbs();
+  _pdfRenderPage();
+  _pdfUpdatePageInfo();
+  _pdfUpdatePropertiesPanel();
+}
+
+// ── Add / remove / reorder pages ─────────────────────────────────────────────
+async function pdfEditorAddPage(afterPageId) {
+  if (!_pdfDoc || !_hasDocApi()) return;
+  try {
+    const doc = await window.electronAPI.doc.addPage({ documentId: _pdfDoc.id, afterPageId: afterPageId || null });
+    _pdfDoc = doc;
+    _pdfCurrentPageIdx = afterPageId
+      ? doc.pages.findIndex(p => p.id === afterPageId) + 1
+      : doc.pages.length - 1;
+    _pdfRenderThumbs();
+    _pdfRenderPage();
+    _pdfUpdatePageInfo();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function _pdfRemovePage(pageId) {
+  if (!_pdfDoc || !_hasDocApi()) return;
+  if (!confirm('Remove this page?')) return;
+  try {
+    const doc = await window.electronAPI.doc.removePage({ documentId: _pdfDoc.id, pageId });
+    _pdfDoc = doc;
+    _pdfCurrentPageIdx = Math.min(_pdfCurrentPageIdx, doc.pages.length - 1);
+    _pdfRenderThumbs();
+    _pdfRenderPage();
+    _pdfUpdatePageInfo();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function pdfEditorRemovePage() { if (_pdfDoc) _pdfRemovePage(_pdfDoc.pages[_pdfCurrentPageIdx]?.id); }
+async function pdfEditorMovePageUp() {
+  if (!_pdfDoc || _pdfCurrentPageIdx === 0) return;
+  const p = _pdfDoc.pages;
+  [p[_pdfCurrentPageIdx-1], p[_pdfCurrentPageIdx]] = [p[_pdfCurrentPageIdx], p[_pdfCurrentPageIdx-1]];
+  _pdfCurrentPageIdx--;
+  _pdfMarkDirty(); _pdfRenderThumbs(); _pdfRenderPage();
+}
+async function pdfEditorMovePageDown() {
+  if (!_pdfDoc || _pdfCurrentPageIdx >= _pdfDoc.pages.length - 1) return;
+  const p = _pdfDoc.pages;
+  [p[_pdfCurrentPageIdx], p[_pdfCurrentPageIdx+1]] = [p[_pdfCurrentPageIdx+1], p[_pdfCurrentPageIdx]];
+  _pdfCurrentPageIdx++;
+  _pdfMarkDirty(); _pdfRenderThumbs(); _pdfRenderPage();
+}
+
+// ── Render canvas page ────────────────────────────────────────────────────────
+function _pdfRenderPage() {
+  const canvas = document.getElementById('pdfPageCanvas');
+  if (!canvas || !_pdfDoc) return;
+  const page = _pdfDoc.pages[_pdfCurrentPageIdx];
+  if (!page) return;
+
+  canvas.style.width  = page.width + 'px';
+  canvas.style.height = page.height + 'px';
+  canvas.style.transform = `scale(${_pdfZoom})`;
+
+  // Remove old elements (keep nothing)
+  canvas.innerHTML = '';
+
+  for (const el of page.elements) {
+    canvas.appendChild(_pdfCreateElementDom(el, page));
+  }
+}
+
+function _pdfCreateElementDom(el, page) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'pdf-element' + (el.id === _pdfSelectedElId ? ' selected' : '');
+  wrapper.dataset.elId = el.id;
+  wrapper.style.cssText = `left:${el.x}px;top:${el.y}px;width:${el.width}px;height:${el.height}px;`;
+
+  if (el.type === 'text') {
+    const inner = document.createElement('div');
+    inner.className = 'pdf-el-text';
+    inner.contentEditable = 'false';
+    inner.textContent = el.content || '';
+    inner.style.fontSize  = (el.fontSize || 12) + 'px';
+    const _arabicStack = '"Traditional Arabic","Arial Unicode MS","Tahoma","Simplified Arabic",sans-serif';
+    inner.style.fontFamily = el.fontFamily === 'Arabic' ? _arabicStack : (el.fontFamily || 'Georgia');
+    inner.style.fontWeight = el.bold ? 'bold' : 'normal';
+    inner.style.fontStyle  = el.italic ? 'italic' : 'normal';
+    inner.style.textDecoration = el.underline ? 'underline' : '';
+    if (el.rtl) {
+      inner.style.direction = 'rtl';
+      inner.style.textAlign = el.textAlign || 'right';
+    } else {
+      inner.style.textAlign = el.textAlign || 'left';
+    }
+    inner.style.color      = el.color || '#000000';
+    inner.addEventListener('dblclick', e => { e.stopPropagation(); _pdfStartEditText(el, inner); });
+    inner.addEventListener('input', () => {
+      el.content = inner.textContent;
+      _pdfMarkDirty();
+    });
+    wrapper.appendChild(inner);
+  } else if (el.type === 'shape') {
+    const inner = document.createElement('div');
+    inner.className = 'pdf-el-shape';
+    inner.style.background = el.fill || 'transparent';
+    inner.style.borderColor = el.stroke || '#1a1a2e';
+    inner.style.borderWidth = (el.strokeWidth || 2) + 'px';
+    wrapper.appendChild(inner);
+  } else if (el.type === 'image') {
+    const img = document.createElement('img');
+    img.className = 'pdf-el-image';
+    img.src = el.src || '';
+    img.draggable = false;
+    wrapper.appendChild(img);
+  }
+
+  // Resize handles
+  for (const pos of ['nw','ne','sw','se']) {
+    const h = document.createElement('div');
+    h.className = `resize-handle ${pos}`;
+    h.addEventListener('mousedown', e => { e.stopPropagation(); _pdfStartResize(e, el, pos); });
+    wrapper.appendChild(h);
+  }
+
+  // Move drag
+  wrapper.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('resize-handle')) return;
+    if (e.target.contentEditable === 'true') return;
+    e.stopPropagation();
+    _pdfSelectEl(el.id);
+    _pdfStartMove(e, el);
+  });
+
+  // Select on click
+  wrapper.addEventListener('click', e => {
+    e.stopPropagation();
+    _pdfSelectEl(el.id);
+  });
+
+  return wrapper;
+}
+
+// ── Click on canvas background = deselect ─────────────────────────────────────
+function pdfCanvasAreaClick(e) {
+  if (e.target === document.getElementById('pdfCanvasArea') ||
+      e.target === document.getElementById('pdfPageCanvas')) {
+    _pdfSelectEl(null);
+  }
+}
+
+// ── Select element ────────────────────────────────────────────────────────────
+function _pdfSelectEl(id) {
+  _pdfSelectedElId = id;
+  document.querySelectorAll('.pdf-element').forEach(el => {
+    el.classList.toggle('selected', el.dataset.elId === id);
+  });
+  _pdfUpdatePropertiesPanel();
+  _pdfUpdateToolbarState();
+}
+
+// ── Text editing ──────────────────────────────────────────────────────────────
+function _pdfStartEditText(el, inner) {
+  inner.contentEditable = 'true';
+  inner.focus();
+  // Select all
+  const range = document.createRange();
+  range.selectNodeContents(inner);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+
+  const finish = () => {
+    inner.contentEditable = 'false';
+    el.content = inner.textContent;
+    _pdfMarkDirty();
+    inner.removeEventListener('blur', finish);
+    inner.removeEventListener('keydown', onKey);
+  };
+  const onKey = e => { if (e.key === 'Escape') { finish(); } };
+  inner.addEventListener('blur', finish);
+  inner.addEventListener('keydown', onKey);
+}
+
+// ── Move drag ─────────────────────────────────────────────────────────────────
+function _pdfStartMove(e, el) {
+  e.preventDefault();
+  const startX = e.clientX, startY = e.clientY;
+  const origX = el.x, origY = el.y;
+  const scale = _pdfZoom;
+
+  function onMove(ev) {
+    el.x = Math.max(0, origX + (ev.clientX - startX) / scale);
+    el.y = Math.max(0, origY + (ev.clientY - startY) / scale);
+    const wrapper = document.querySelector(`[data-el-id="${el.id}"]`);
+    if (wrapper) { wrapper.style.left = el.x + 'px'; wrapper.style.top = el.y + 'px'; }
+    _pdfUpdatePropertiesPanel();
+  }
+  function onUp() {
+    _pdfMarkDirty();
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── Resize drag ───────────────────────────────────────────────────────────────
+function _pdfStartResize(e, el, handle) {
+  e.preventDefault();
+  const startX = e.clientX, startY = e.clientY;
+  const origW = el.width, origH = el.height, origX = el.x, origY = el.y;
+  const scale = _pdfZoom;
+
+  function onMove(ev) {
+    const dx = (ev.clientX - startX) / scale;
+    const dy = (ev.clientY - startY) / scale;
+    if (handle.includes('e')) el.width  = Math.max(20, origW + dx);
+    if (handle.includes('s')) el.height = Math.max(14, origH + dy);
+    if (handle.includes('w')) { el.x = origX + dx; el.width  = Math.max(20, origW - dx); }
+    if (handle.includes('n')) { el.y = origY + dy; el.height = Math.max(14, origH - dy); }
+    const wrapper = document.querySelector(`[data-el-id="${el.id}"]`);
+    if (wrapper) {
+      wrapper.style.left   = el.x + 'px';
+      wrapper.style.top    = el.y + 'px';
+      wrapper.style.width  = el.width + 'px';
+      wrapper.style.height = el.height + 'px';
+    }
+    _pdfUpdatePropertiesPanel();
+  }
+  function onUp() {
+    _pdfMarkDirty();
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// ── Insert elements ───────────────────────────────────────────────────────────
+function _pdfCurrentPage() { return _pdfDoc?.pages[_pdfCurrentPageIdx]; }
+
+function pdfInsertText() {
+  const page = _pdfCurrentPage(); if (!page) return;
+  const el = {
+    id: _pdfNewId(), type: 'text',
+    content: 'New text block',
+    x: 80, y: 80, width: 300, height: 30,
+    fontSize: 14, fontFamily: 'Georgia', bold: false, italic: false,
+    textAlign: 'left', color: '#000000',
+  };
+  _pdfPushUndo();
+  page.elements.push(el);
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfSelectEl(el.id);
+}
+
+async function pdfInsertImage() {
+  if (!_hasDocApi()) return;
+  const result = await window.electronAPI.doc.pickImage();
+  if (result.canceled) return;
+  const { dataUrl } = await window.electronAPI.doc.readImageBase64({ filePath: result.filePath });
+  const page = _pdfCurrentPage(); if (!page) return;
+  const el = {
+    id: _pdfNewId(), type: 'image',
+    src: result.filePath,     // main process path for export
+    _dataUrl: dataUrl,        // renderer-only display
+    x: 80, y: 80, width: 200, height: 150,
+  };
+  _pdfPushUndo();
+  page.elements.push(el);
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfSelectEl(el.id);
+}
+
+function pdfInsertShape() {
+  const page = _pdfCurrentPage(); if (!page) return;
+  const el = {
+    id: _pdfNewId(), type: 'shape', shape: 'rectangle',
+    x: 100, y: 100, width: 200, height: 120,
+    fill: 'transparent', stroke: '#1a1a2e', strokeWidth: 2,
+  };
+  _pdfPushUndo();
+  page.elements.push(el);
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfSelectEl(el.id);
+}
+
+// ── Delete selected ───────────────────────────────────────────────────────────
+function pdfDeleteSelected() {
+  const page = _pdfCurrentPage(); if (!page || !_pdfSelectedElId) return;
+  _pdfPushUndo();
+  page.elements = page.elements.filter(e => e.id !== _pdfSelectedElId);
+  _pdfSelectedElId = null;
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfUpdatePropertiesPanel();
+}
+
+// ── Undo ──────────────────────────────────────────────────────────────────────
+function _pdfPushUndo() {
+  const page = _pdfCurrentPage(); if (!page) return;
+  _pdfUndoStack.push(JSON.stringify(page.elements));
+  if (_pdfUndoStack.length > 50) _pdfUndoStack.shift();
+}
+function pdfUndo() {
+  const page = _pdfCurrentPage(); if (!page || !_pdfUndoStack.length) return;
+  page.elements = JSON.parse(_pdfUndoStack.pop());
+  _pdfSelectedElId = null;
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfUpdatePropertiesPanel();
+}
+
+// ── Format toolbar ────────────────────────────────────────────────────────────
+function _pdfGetSelectedEl() {
+  const page = _pdfCurrentPage(); if (!page || !_pdfSelectedElId) return null;
+  return page.elements.find(e => e.id === _pdfSelectedElId) || null;
+}
+
+function pdfFormatSelected(prop, value) {
+  const el = _pdfGetSelectedEl(); if (!el || el.type !== 'text') return;
+  _pdfPushUndo();
+  el[prop] = value;
+  // Auto-enable RTL when switching to an Arabic font
+  if (prop === 'fontFamily' && (value === 'Arabic' || value === 'Tahoma')) {
+    el.rtl = true;
+    if (!el.textAlign || el.textAlign === 'left') el.textAlign = 'right';
+  }
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfSelectEl(_pdfSelectedElId);
+}
+
+function pdfToggleFormat(prop) {
+  const el = _pdfGetSelectedEl(); if (!el || el.type !== 'text') return;
+  _pdfPushUndo();
+  el[prop] = !el[prop];
+  _pdfMarkDirty();
+  _pdfRenderPage();
+  _pdfSelectEl(_pdfSelectedElId);
+  _pdfUpdateToolbarState();
+}
+
+function _pdfUpdateToolbarState() {
+  const el = _pdfGetSelectedEl();
+  const isText = el?.type === 'text';
+  document.getElementById('pdfBoldBtn')?.classList.toggle('active', isText && !!el.bold);
+  document.getElementById('pdfItalicBtn')?.classList.toggle('active', isText && !!el.italic);
+  document.getElementById('pdfUnderlineBtn')?.classList.toggle('active', isText && !!el.underline);
+  if (isText) {
+    const ff = document.getElementById('pdfFontFamily');
+    const fs = document.getElementById('pdfFontSize');
+    const col = document.getElementById('pdfTextColor');
+    if (ff) ff.value = el.fontFamily || 'Georgia';
+    if (fs) fs.value = el.fontSize || 12;
+    if (col) col.value = el.color || '#000000';
+  }
+}
+
+// ── Properties panel ──────────────────────────────────────────────────────────
+function _pdfUpdatePropertiesPanel() {
+  const el = _pdfGetSelectedEl();
+  const none = document.getElementById('pdfPropsNone');
+  const panel = document.getElementById('pdfPropsEl');
+  const textProps = document.getElementById('pdfTextProps');
+  if (!el) {
+    none.style.display = ''; panel.style.display = 'none';
+    return;
+  }
+  none.style.display = 'none'; panel.style.display = '';
+  document.getElementById('ppX').value = Math.round(el.x);
+  document.getElementById('ppY').value = Math.round(el.y);
+  document.getElementById('ppW').value = Math.round(el.width);
+  document.getElementById('ppH').value = Math.round(el.height);
+  if (textProps) textProps.style.display = el.type === 'text' ? '' : 'none';
+  if (el.type === 'text') {
+    document.getElementById('ppFontSize').value = el.fontSize || 12;
+    document.getElementById('ppBold').checked   = !!el.bold;
+    document.getElementById('ppItalic').checked = !!el.italic;
+  }
+}
+
+function pdfPropChange(prop, value) {
+  const el = _pdfGetSelectedEl(); if (!el) return;
+  _pdfPushUndo();
+  el[prop] = value;
+  const wrapper = document.querySelector(`[data-el-id="${el.id}"]`);
+  if (wrapper) {
+    wrapper.style.left   = el.x + 'px';
+    wrapper.style.top    = el.y + 'px';
+    wrapper.style.width  = el.width + 'px';
+    wrapper.style.height = el.height + 'px';
+  }
+  if (el.type === 'text') _pdfRenderPage(); // re-render for font changes
+  _pdfMarkDirty();
+}
+
+// ── Page info ─────────────────────────────────────────────────────────────────
+function _pdfUpdatePageInfo() {
+  const el = document.getElementById('pdfPageInfo'); if (!el || !_pdfDoc) return;
+  const page = _pdfCurrentPage();
+  if (!page) { el.textContent = ''; return; }
+  el.innerHTML = `Page ${_pdfCurrentPageIdx + 1} of ${_pdfDoc.pages.length}<br>${page.width} × ${page.height} pt<br>${page.elements.length} element(s)`;
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const onPdfPage = document.getElementById('page-pdfeditor')?.classList.contains('active');
+  if (!onPdfPage) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (document.activeElement?.contentEditable === 'true') return;
+    pdfDeleteSelected();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); pdfUndo(); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); pdfEditorSave(); }
+  if (e.key === 'Escape') _pdfSelectEl(null);
 });
+
+// ── AI / OCR tools ────────────────────────────────────────────────────────────
+async function pdfEditorRunOcrOnPage() {
+  showToast('OCR on single page: use the OCR tab to process the source PDF, then "Send to Editor".', 'info');
+}
+
+async function pdfEditorRemoveBg() {
+  if (!_pdfDoc || !_hasDocApi()) return;
+  const page = _pdfCurrentPage();
+  if (!page) return;
+  showToast('Background removal applied (Phase 3 — full image processing coming soon).', 'info');
+}
+
+async function pdfEditorAiClean() {
+  const page = _pdfCurrentPage(); if (!page) return;
+  const textEls = page.elements.filter(e => e.type === 'text');
+  if (!textEls.length) { showToast('No text elements on this page.', 'error'); return; }
+
+  const provider = document.getElementById('editorAiProvider')?.value || 'anthropic';
+  const model    = document.getElementById('editorAiModel')?.value    || '';
+  const combined = textEls.map(e => e.content).join('\n');
+  const prompt = `Fix grammar, spelling, and punctuation in this text extracted from a scanned PDF. Return ONLY the corrected text with one paragraph per line, maintaining the same number of lines:\n\n${combined}`;
+
+  showToast('Running AI clean…', 'info');
+  try {
+    const result = await window.electronAPI.editor.runAi({ provider, model, prompt });
+    if (result.ok && result.text) {
+      const lines = result.text.split('\n');
+      textEls.forEach((el, i) => { if (lines[i] !== undefined) el.content = lines[i]; });
+      _pdfMarkDirty();
+      _pdfRenderPage();
+      showToast('AI clean applied.', 'ok');
+    }
+  } catch (err) {
+    showToast(`AI clean failed: ${err.message}`, 'error');
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function _pdfNewId() {
+  return 'el_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
 </script>
 </body>
 </html>

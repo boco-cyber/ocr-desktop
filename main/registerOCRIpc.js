@@ -16,6 +16,8 @@ function registerOCRIpc({ runtime, dataDir }) {
     editorService,
     historyService,
     settingsService,
+    documentService,
+    documentWorkerBridge,
     logger,
   } = runtime;
 
@@ -488,6 +490,100 @@ function registerOCRIpc({ runtime, dataDir }) {
     };
 
     return setupService.installPackages({ feature, pythonPathOverride, onLine });
+  });
+
+  // ── Document (PDF Editor) IPC ─────────────────────────────────────────────
+
+  ipcMain.handle('doc:create-blank', async (_event, payload) => {
+    return documentService.createBlank(payload || {});
+  });
+
+  ipcMain.handle('doc:create-from-pdf', async (_event, { filePath }) => {
+    if (!filePath) throw new Error('filePath required');
+    // Parse in worker — no blocking the main process
+    const parsed = await documentWorkerBridge.parsePdf(filePath);
+    return documentService.createFromParsed({
+      name: parsed.name,
+      originalFile: filePath,
+      pages: parsed.pages,
+    });
+  });
+
+  ipcMain.handle('doc:list', async () => {
+    return documentService.listDocuments();
+  });
+
+  ipcMain.handle('doc:get', async (_event, { documentId }) => {
+    return documentService.getDocument(documentId);
+  });
+
+  ipcMain.handle('doc:update', async (_event, { document }) => {
+    return documentService.updateDocument(document);
+  });
+
+  ipcMain.handle('doc:add-page', async (_event, { documentId, afterPageId }) => {
+    return documentService.addPage(documentId, afterPageId);
+  });
+
+  ipcMain.handle('doc:remove-page', async (_event, { documentId, pageId }) => {
+    return documentService.removePage(documentId, pageId);
+  });
+
+  ipcMain.handle('doc:reorder-pages', async (_event, { documentId, orderedPageIds }) => {
+    return documentService.reorderPages(documentId, orderedPageIds);
+  });
+
+  ipcMain.handle('doc:delete', async (_event, { documentId }) => {
+    return documentService.deleteDocument(documentId);
+  });
+
+  ipcMain.handle('doc:export-pdf', async (_event, { documentId }) => {
+    const doc = await documentService.getDocument(documentId);
+    const settings = await settingsService.getSettingsForRuntime();
+    const exportRoot = settingsService.getResolvedGeneralPaths(settings).exportPath;
+    await fse.ensureDir(exportRoot);
+
+    const safeName = (doc.name || 'document').replace(/[^a-zA-Z0-9_\-. ]/g, '_');
+    const defaultPath = path.join(exportRoot, `${safeName}.pdf`);
+
+    const saveDialog = await dialog.showSaveDialog({
+      defaultPath,
+      filters: [{ name: 'PDF File', extensions: ['pdf'] }],
+    });
+    if (saveDialog.canceled || !saveDialog.filePath) return { canceled: true };
+
+    await documentWorkerBridge.exportPdf(doc, saveDialog.filePath);
+    return { canceled: false, filePath: saveDialog.filePath };
+  });
+
+  ipcMain.handle('doc:pick-pdf', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { canceled: false, filePath: result.filePaths[0] };
+  });
+
+  ipcMain.handle('doc:pick-image', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { canceled: false, filePath: result.filePaths[0] };
+  });
+
+  ipcMain.handle('doc:read-image-base64', async (_event, { filePath }) => {
+    const buf = await fse.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+    const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+    return { dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
+  });
+
+  ipcMain.handle('doc:remove-bg', async (_event, { documentId, pageId }) => {
+    // Placeholder — returns ok without processing (Phase 3 feature)
+    return { ok: true, documentId, pageId };
   });
 
   ipcMain.handle('settings:open-data-folder', async (_event, payload) => {

@@ -74,8 +74,20 @@ class OCRImportService {
 
         const extension = path.extname(filePath).toLowerCase();
         const converter = extension === '.pdf' ? pdfConverter : imageConverter;
+
+        // Throttle progress updates — write to disk + emit at most every 2s or every 10 pages
+        // to avoid serializing hundreds of disk writes for large PDFs
+        let lastProgressEmit = 0;
+        let lastProgressDone = 0;
+
         const pages = await converter.toPages(copiedSourcePath, {
           onPage: async (done, total) => {
+            lastProgressDone = done;
+            const now = Date.now();
+            const shouldEmit = (now - lastProgressEmit > 2000) || done === total || done === 1;
+            if (!shouldEmit) return;
+            lastProgressEmit = now;
+
             await this.store.withState(async state => {
               const project = state.projects[projectId];
               if (!project) return;

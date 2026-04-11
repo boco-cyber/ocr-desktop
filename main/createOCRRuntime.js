@@ -1,6 +1,8 @@
 const { EventEmitter } = require('events');
 const path = require('path');
 
+const { DocumentService } = require('./services/document/DocumentService');
+const { DocumentWorkerBridge } = require('./services/document/DocumentWorkerBridge');
 const { OCRPersistenceService } = require('./services/ocr/OCRPersistenceService');
 const { OCRImportService } = require('./services/ocr/OCRImportService');
 const { OCRWorkerBridge } = require('./services/ocr/OCRWorkerBridge');
@@ -71,6 +73,10 @@ async function createOCRRuntime({ dataDir, appInfo = {}, safeStorageAdapter = nu
     costEstimator: translationCostEstimator,
     settingsService,
   });
+  const documentService = new DocumentService({ dataDir, logger, eventBus });
+  const documentWorkerBridge = new DocumentWorkerBridge({ logger });
+  await documentService.init();
+
   const historyService = new ProjectHistoryService({
     ocrStore: store,
     translationStore,
@@ -98,6 +104,8 @@ async function createOCRRuntime({ dataDir, appInfo = {}, safeStorageAdapter = nu
     logger,
     eventBus,
     setupService,
+    documentService,
+    documentWorkerBridge,
     store,
     importService,
     workerBridge,
