@@ -1,6 +1,13 @@
 @echo off
 title OCR Desktop
 color 0A
+cd /d "%~dp0"
+
+set "LOCAL_NODE_DIR="
+for /d %%D in (".tools\node\node-v*-win-x64") do set "LOCAL_NODE_DIR=%%~fD"
+if defined LOCAL_NODE_DIR (
+    set "PATH=%LOCAL_NODE_DIR%;%PATH%"
+)
 
 echo.
 echo  ========================================
@@ -11,7 +18,7 @@ echo.
 where node >nul 2>&1
 if %errorlevel% neq 0 (
     echo  [ERROR] Node.js not found!
-    echo  Please install Node.js from https://nodejs.org
+    echo  Install Node.js from https://nodejs.org or place a portable copy in .tools\node\
     pause
     exit /b 1
 )

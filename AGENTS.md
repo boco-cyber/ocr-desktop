@@ -7,14 +7,15 @@ Complete developer reference for AI agents and human contributors.
 
 ## Project Overview
 
-OCR Desktop is a **portable Windows desktop app** (Electron + Node.js) that uses AI vision models to extract text from images and scanned PDFs. It supports multiple AI providers: Anthropic (Claude), OpenAI (GPT-4o), Google Gemini, and Ollama (local models).
+OCR Desktop is a **Windows desktop app** (Electron + Node.js) for local-first OCR and translation work on scanned books, PDFs, images, and imported text/document sources. It supports AI vision OCR providers (Anthropic, OpenAI, Gemini, Ollama, PaddleOCR) and translation backends (local NLLB, Ollama, and optional paid providers).
 
-The architecture is a **three-tier SPA**:
-- **Electron shell** (`electron.js`) — wraps the web app in a native window
-- **Express server** (`server.js`) — handles file upload, OCR job management, provider routing, downloads
-- **Single-page UI** (`index.html`) — vanilla JS, no framework, dark theme
+The primary desktop architecture is now:
+- **Electron main process** (`electron.js`) — owns app startup, app runtime bootstrap, IPC, and wake-lock/shutdown behavior
+- **Main-process services** (`main/`) — own persisted OCR/translation/editor storage, run orchestration, worker dispatch, export, recovery, and diagnostics
+- **Single-page renderer UI** (`index.html`) — vanilla JS, no framework, dark theme; issues explicit commands and renders persisted state
+- **Child workers** (`workers/ocr-worker.js`, `workers/translation-worker.js`) — perform assigned OCR or translation work only when the main process dispatches it
 
-Port: **3444** (intentionally different from universal-translator on 3333)
+`server.js` remains in the repo only as a browser/dev fallback path. Electron desktop mode no longer depends on it for OCR execution.
 
 ---
 
@@ -22,18 +23,56 @@ Port: **3444** (intentionally different from universal-translator on 3333)
 
 ```
 ocr-desktop/
-├── electron.js          # Electron app wrapper — forks server, polls until ready, creates window
-├── server.js            # Express server — all routes, job engine, provider dispatch
+├── electron.js          # Electron app wrapper — boots the main-process OCR runtime and creates the BrowserWindow
+├── preload.js           # Electron preload — exposes safe IPC bridge for OCR/project commands and power controls
+├── server.js            # Legacy browser/dev server path (Electron mode does not use this for OCR orchestration)
 ├── index.html           # Single-page UI — upload zone, progress, result viewer, job history
 ├── package.json         # Dependencies + electron-builder config
 ├── START.bat            # Windows dev launcher (npm install if needed, opens browser)
 ├── AGENTS.md            # This file
 ├── .gitignore
 │
+├── main/                # Electron main-process app runtime
+│   ├── createOCRRuntime.js   # Runtime bootstrap — OCR, translation, editor services, and recovery
+│   ├── registerOCRIpc.js     # IPC contract registration for OCR/translation/editor actions
+│   └── services/
+│       ├── logger.js         # JSON-lines orchestration logger
+│       ├── history/
+│       │   └── ProjectHistoryService.js # Combined OCR/translation/editor history queries, open routing, and delete scope
+│       ├── editor/
+│       │   └── EditorDocumentService.js
+│       ├── ocr/
+│       │   ├── OCRPersistenceService.js # Persisted project/run/page store
+│       │   ├── OCRImportService.js      # File import, page extraction, thumbnails, prepared assets
+│       │   ├── OCRRunManager.js         # Start/pause/resume/stop/retry orchestration
+│       │   ├── OCRWorkerBridge.js       # Child worker launch, health check, page dispatch
+│       │   ├── OCRProjectService.js     # Queries, exports, language detect, page text persistence
+│       │   ├── ocrHelpers.js            # OCR prompt + language/script helpers
+│       │   └── stateModel.js            # Authoritative worker/run/page states
+│       └── translation/
+│           ├── TranslationPersistenceService.js
+│           ├── TranslationImportService.js
+│           ├── TextNormalizationService.js
+│           ├── TextChunkingService.js
+│           ├── TranslationCostEstimator.js
+│           ├── TranslationRunManager.js
+│           ├── TranslationWorkerBridge.js
+│           ├── TranslationProviderRouter.js
+│           ├── TranslationProjectService.js
+│           ├── translationHelpers.js
+│           └── stateModel.js
+│
+├── workers/
+│   ├── ocr-worker.js      # Child-process OCR worker — runs one assigned page at a time
+│   ├── translation-worker.js # Child-process translation worker — routes one assigned chunk at a time
+│   └── nllb-translate.py  # Local NLLB Python bridge
+│
 ├── providers/           # One file per AI provider — each exports { ocr() }
 │   ├── anthropic.js     # claude-sonnet-4-6 (and other claude models with vision)
 │   ├── openai.js        # gpt-4o, gpt-4o-mini (high-detail vision)
 │   ├── gemini.js        # gemini-1.5-pro, gemini-1.5-flash (inline_data vision)
+│   ├── paddleocr.js     # Local PaddleOCR provider — spawns Python worker
+│   ├── paddleocr_worker.py # Python helper process for PaddleOCR recognition
 │   └── ollama.js        # Local Ollama vision models (llava, moondream, bakllava, etc.)
 │
 ├── converters/          # File → array of base64 PNG pages
@@ -44,15 +83,19 @@ ocr-desktop/
 │   └── docx.js          # OCR text → .docx buffer (docx npm package)
 │
 └── data/                # Runtime data (gitignored)
-    ├── ocr_jobs.json    # Persistent job store — { jobs: { [uuid]: Job } }
-    └── uploads/         # Multer temp upload dir — files deleted after conversion
+    ├── ocr_projects.json         # Persistent Electron OCR project/run/page store
+    ├── translation_projects.json # Persistent translation project/run/chunk store
+    ├── editor_documents.json     # Persisted editor documents
+    ├── logs/                     # Orchestration logs
+    ├── projects/                 # OCR per-project source/pages/thumbs/prepared assets
+    └── translation-projects/     # Translation source copies + normalized text
 ```
 
 ---
 
 ## Running the App
 
-### Development (browser)
+### Development (browser fallback)
 ```bash
 cd ocr-desktop
 npm install
@@ -70,10 +113,16 @@ npm run electron
 Double-click START.bat
 ```
 
-### Build portable .exe
+### Build installer .exe
 ```bash
 npm run build
-# Output: dist-electron/ocr-desktop.exe
+# Output: dist-electron/ocr-desktop-setup-<version>.exe
+```
+
+### Build portable .exe
+```bash
+npm run build:portable
+# Output: dist-electron/ocr-desktop-portable-<version>.exe
 ```
 
 ---
@@ -104,36 +153,97 @@ async function ocr({ apiKey, model, imageBase64, prompt, baseUrl })
 
 ---
 
-## Job Data Model
+## Electron State Model
 
-Jobs are stored in `data/ocr_jobs.json`:
+Desktop mode persists OCR projects/runs in `data/ocr_projects.json`, translation projects/runs in `data/translation_projects.json`, and editor documents in `data/editor_documents.json`.
+
+History is queried from those same stores through `main/services/history/ProjectHistoryService.js`; the renderer does not compose authoritative history state from transient UI memory.
+
+### Worker process state
+- `Stopped`
+- `Starting`
+- `Idle`
+- `Busy`
+- `Paused`
+- `Error`
+
+### OCR run state
+- `Created`
+- `Ready`
+- `Running`
+- `Pausing`
+- `Paused`
+- `Stopping`
+- `Stopped`
+- `Completed`
+- `CompletedWithFailures`
+- `Failed`
+- `Interrupted`
+
+### Page OCR state
+- `Pending`
+- `Prepared`
+- `Queued`
+- `Processing`
+- `Completed`
+- `Failed`
+- `Skipped`
+- `Cancelled`
+
+### Translation worker state
+- `Stopped`
+- `Starting`
+- `Idle`
+- `Busy`
+- `Paused`
+- `Error`
+
+### Translation run state
+- `Created`
+- `Ready`
+- `Running`
+- `Pausing`
+- `Paused`
+- `Stopping`
+- `Stopped`
+- `Completed`
+- `CompletedWithFailures`
+- `Failed`
+- `Interrupted`
+
+### Translation chunk state
+- `Pending`
+- `Queued`
+- `Processing`
+- `Completed`
+- `Failed`
+- `Skipped`
+- `Cancelled`
+
+## Persisted Project Shape
+
+Projects and runs are stored separately in the local Electron store:
 
 ```js
 {
-  id:           string,           // UUID v4
-  originalName: string,           // uploaded filename
-  uploadedAt:   ISO8601 string,
-  status:       "uploaded" | "processing" | "done" | "failed" | "cancelled",
-  pageCount:    number,
-  pages: [{
-    index:       number,          // 0-based
-    imageBase64: string,          // base64 PNG (stored in job for retry)
-    status:      "pending" | "processing" | "done" | "failed",
-    error:       string | null,
-  }],
-  ocrResults:   string[],         // parallel to pages, null until page done
-  config: {
-    provider:      string,
-    model:         string,
-    language:      string,        // language hint for OCR prompt
-    customPrompt:  string,        // optional user-defined prompt override
-    ollamaBaseUrl: string,
+  projects: {
+    [projectId]: {
+      id, title, sourceFileName, sourceCopyPath,
+      importState, importError, detectedLanguage,
+      pageIds, pages, latestRunId, runIds
+    }
   },
-  fatalError:   string | null,    // set when job halts due to auth/billing error
+  runs: {
+    [runId]: {
+      id, projectId, state, workerState,
+      languageMode, resolvedLanguage, options,
+      selectedPageIds, progress, pageStates
+    }
+  }
 }
 ```
 
-**NOTE**: `imageBase64` for all pages is stored in the job JSON. For large multi-page PDFs this can make `ocr_jobs.json` very large. For documents > 30 pages, consider migrating to file-based image storage.
+Page images, prepared assets, and thumbnails are stored on disk under `data/projects/<projectId>/`.
 
 ---
 
@@ -142,11 +252,13 @@ Jobs are stored in `data/ocr_jobs.json`:
 | Method | Path | Body / Params | Response |
 |---|---|---|---|
 | POST | `/api/upload` | multipart `file` | `{ jobId, pageCount, filename }` |
-| POST | `/api/ocr` | `{ jobId, provider, model, apiKey, language, customPrompt, ollamaBaseUrl }` | `{ jobId, pageCount }` |
-| GET | `/api/status/:jobId` | — | `{ status, progress, done, failed, total, fatalError, pages }` |
+| POST | `/api/ocr` | `{ jobId, provider, model, apiKey, language, ocrMode, customPrompt, ollamaBaseUrl, concurrency, pageFrom, pageTo }` | `{ jobId, pageCount, selectedCount, concurrency }` |
+| GET | `/api/status/:jobId` | — | `{ status, progress, done, failed, total, pageCount, pageFrom, pageTo, fatalError, pages }` |
 | GET | `/api/result/:jobId` | — | `{ jobId, originalName, status, pageCount, pages, fullText }` |
+| POST | `/api/pause/:jobId` | — | `{ ok: true, status: "paused" }` |
+| POST | `/api/resume/:jobId` | `{ provider?, model?, apiKey?, language?, ocrMode?, customPrompt?, ollamaBaseUrl?, concurrency? }` | `{ ok: true, status: "processing" }` |
 | POST | `/api/cancel/:jobId` | — | `{ ok: true }` |
-| POST | `/api/retry/:jobId` | `{ provider?, model?, apiKey?, language?, ollamaBaseUrl? }` | `{ jobId, retrying }` |
+| POST | `/api/retry/:jobId` | `{ provider?, model?, apiKey?, language?, ocrMode?, customPrompt?, ollamaBaseUrl?, concurrency?, pageFrom?, pageTo?, failedOnly? }` | `{ jobId, retrying, pageFrom, pageTo }` |
 | GET | `/api/download/:jobId/txt` | — | Plain text file download |
 | GET | `/api/download/:jobId/docx` | — | DOCX file download |
 | GET | `/api/jobs` | — | `{ jobs: [summary] }` |
@@ -160,10 +272,18 @@ Jobs are stored in `data/ocr_jobs.json`:
 The default prompt (built in `buildOCRPrompt()` in `server.js`):
 
 ```
-You are a professional OCR (Optical Character Recognition) system. [The document is written in LANGUAGE.] [This is page N of TOTAL.] Extract ALL text from this image exactly as it appears. Preserve the original layout, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.
+You are a professional OCR (Optical Character Recognition) system. [The document is written in LANGUAGE.] [This is page N of TOTAL.] Extract ALL text from this image exactly as it appears. Preserve the original layout, visual hierarchy, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. When titles, subtitles, headers, footers, footnotes, or body text are visually distinct, preserve that distinction in the plain-text output. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.
 ```
 
 Users can override this with a custom prompt in the sidebar.
+
+### OCR Modes
+
+`OCR_MODE_PROMPTS` in `server.js` / `OCR_MODES` in `index.html` define preset instructions for specialized extraction. In addition to book/photo/table/handwriting/receipt/numbers/noheaders, the app includes:
+
+- `structure` — asks AI vision providers to label recognized blocks with `[TITLE]`, `[SUBTITLE]`, `[BODY]`, `[HEADER]`, `[FOOTER]`, and `[FOOTNOTE]` tags in reading order
+
+**Note:** PaddleOCR ignores prompt text, so structured labeling only applies to AI vision providers (Anthropic, OpenAI, Gemini, Ollama vision models).
 
 ---
 
@@ -202,20 +322,27 @@ If a non-vision model is selected and the user tries to OCR, Ollama returns an e
 Single HTML file, vanilla JS, no framework or bundler.
 
 **Sections:**
-- `#sidebar` — provider/model/key settings, language hint, custom prompt
-- `#uploadZone` — drag-and-drop or click-to-browse, shows supported formats
-- `#progressSection` — progress bar + page grid (colored boxes per page status), cancel button
-- `#resultSection` — tabbed result viewer (All Pages + per-page tabs), copy/download buttons
-- `#historySection` — recent job list with status badges, click to reload, delete button
+- `#page-ocr` — OCR import, progress, preview, recognized text, OCR export
+- `#page-translator` — translation project actions, chunk list, source/translation review, translation export, editor handoff
+- `#page-editor` — persisted editor text from Translator output
+- `#page-history` — persisted OCR + translation project history
+- `#page-settings` — API keys and Ollama defaults
+- `#sidebar-ocr` / `#sidebar-translation` / `#sidebar-generic` — route-specific sidebars; OCR and translation controls must not mix
 
 **State:**
 - `currentJobId` — active job UUID
 - `pollInterval` — setInterval handle for status polling (every 1500ms)
 - `resultPages` — array of `{ index, text, status }` for tab switching
 - `activePageTab` — current tab index (-1 = all)
+- `currentTranslationProjectId` — active translation project id
+- `currentTranslationRunId` — active translation run id
+- `currentTranslationSnapshot` — latest persisted translation snapshot
+- `currentEditorDocumentId` — active editor document id
+- `historyState` — active history filters, list results, selected item, and loaded detail snapshot
 
 **localStorage keys:**
 - `ocrSettings` — `{ provider, apiKey, model, ollamaBaseUrl, lang }`
+- `translationSettings` — `{ sourceLanguage, targetLanguage, provider, model, chunkSize, ollamaBaseUrl }`
 
 ---
 
@@ -233,6 +360,19 @@ Single HTML file, vanilla JS, no framework or bundler.
 ---
 
 ## Recent Feature Additions
+
+### History Screen Rebuild
+- Added `main/services/history/ProjectHistoryService.js` to build combined history summaries from persisted OCR, translation, and editor state
+- Added History IPC for list, detail, search, filter, delete, open, active-summary, and update subscription flows
+- Rebuilt `#page-history` into a real Electron productivity screen with:
+  - history-only action bar
+  - search/filter/sort controls
+  - persisted project list
+  - detail panel with workflow status, counts, local references, export actions, and delete scope
+- Added mixed history items that merge a translation project with its linked OCR project for OCR-to-translation workflows
+- Added `lastOpenedAt` tracking for OCR projects, translation projects, and editor documents when History reopens saved work
+- Added editor-document cleanup when deleting translation history items so delete does not leave orphaned editor records
+- Added `history:updated` events so the History screen can refresh while OCR, translation, or editor updates continue in the background
 
 ### Clipboard Paste (Ctrl+V)
 A `paste` event listener on `document` intercepts clipboard image data. When an image item is detected, it is extracted as a `File` and passed to the existing `uploadFile(file)` function. The drop zone shows a "or paste a screenshot (Ctrl+V)" hint.
@@ -264,7 +404,13 @@ Added to a new `keydown` listener on `document` (the existing file had none):
 ### Page Range Selection
 - A "⚙ Range" button in `#fileCard` toggles `#pageRangePanel` (a flex row with "From page" / "To page" number inputs and a Reset button).
 - `startOCR()` reads `#pageRangeFrom` and `#pageRangeTo`, converts to 0-based indices, and sends `pageFrom` / `pageTo` in the JSON body to `POST /api/ocr`.
-- `server.js` reads and validates `pageFrom` / `pageTo`, stores them in `job.config`, and filters the page indices array: `indices.filter(i => i >= rangeFrom && i <= rangeTo)`.
+- `server.js` reads and validates `pageFrom` / `pageTo`, stores them in `job.config`, and limits progress accounting / OCR work to that selected range.
+- `POST /api/retry/:jobId` also accepts `pageFrom` / `pageTo` with `failedOnly:false` so the user can retry an arbitrary page range later.
+
+### Pause / Resume
+- `POST /api/pause/:jobId` changes the job status to `paused`; the active OCR worker finishes the current chunk and then waits.
+- `POST /api/resume/:jobId` switches status back to `processing` and continues the current OCR range using the latest provider settings from the UI.
+- `#progressCard` exposes Pause, Resume, Stop, Retry Failed, and Retry Range controls during OCR.
 
 ### DOCX RTL Support
 - `buildDocx` in `output/docx.js` now accepts a third options argument `{ rtl = false }`.
@@ -290,9 +436,12 @@ Added to a new `keydown` listener on `document` (the existing file had none):
 
 ## electron-builder Config Notes
 
-- Target: `portable` Windows x64 (single .exe, no installer)
+- Default target: `nsis` Windows x64 installer
+- Portable target is still available via `npm run build:portable`
 - `asar: true` — code bundled in asar archive
-- In packaged mode: `app.isPackaged === true`, use `process.resourcesPath` for code files
-- Data directory (`data/`) must be written to `path.dirname(process.execPath)` NOT inside asar
+- In packaged mode: Electron loads `server.js` / `preload.js` from `app.getAppPath()` so files resolve correctly from inside `app.asar`
+- `providers/paddleocr_worker.py` is unpacked with `asarUnpack` because Python cannot execute a script directly from `app.asar`
+- In Electron mode, the runtime data directory is passed in via `APP_DATA_DIR` and stored under `app.getPath('userData')/data`
 - `node_modules/electron` and `node_modules/electron-builder` excluded from bundle to keep size down
-- Build output: `dist-electron/ocr-desktop.exe`
+- Installer output: `dist-electron/ocr-desktop-setup-<version>.exe`
+- Portable output: `dist-electron/ocr-desktop-portable-<version>.exe`

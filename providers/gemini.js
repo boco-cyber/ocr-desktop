@@ -32,7 +32,7 @@ async function ocr({ apiKey, model, imageBase64, prompt }) {
           { text: prompt },
         ],
       }],
-      generationConfig: { maxOutputTokens: 4096 },
+      generationConfig: { maxOutputTokens: 8192 },
     }),
   });
 
@@ -45,4 +45,20 @@ async function ocr({ apiKey, model, imageBase64, prompt }) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 }
 
-module.exports = { ocr };
+async function listModels({ apiKey }) {
+  if (!apiKey) throw new Error('Google Gemini API key is required');
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=50`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`Gemini error ${response.status}: ${err?.error?.message || response.statusText}`);
+  }
+  const data = await response.json();
+  // Only keep models that support generateContent (usable for OCR/translation)
+  const models = (data.models || [])
+    .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map(m => m.name.replace('models/', ''))
+    .filter(id => id.startsWith('gemini'));
+  return models;
+}
+
+module.exports = { ocr, listModels };

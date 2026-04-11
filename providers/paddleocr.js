@@ -1,97 +1,160 @@
 /**
- * PaddleOCR provider for ocr-desktop.
- * Spawns providers/paddleocr_worker.py via Python 3.11.
+ * Local OCR provider for ocr-desktop — powered by PaddleOCR (Python subprocess).
  *
- * Exports: { ocr({ imageBase64, lang }) }
- * lang: ISO language code (e.g. 'en', 'zh', 'ar') — mapped to PaddleOCR lang inside worker.
+ * Exports: { ocr({ imageBase64, lang, runtimeConfig }) }
+ * lang: ISO language code (e.g. 'en', 'ar', 'zh', 'fr')
+ *
+ * Spawns paddleocr_worker.py once per (lang, device) combination and reuses
+ * the process for subsequent pages (persistent server mode).
  */
 
-const { spawn } = require('child_process');
 const path = require('path');
+const { spawn } = require('child_process');
+const { v4: uuidv4 } = require('uuid');
 
-const WORKER_SCRIPT = path.join(__dirname, 'paddleocr_worker.py');
+const WORKER_PATH = path.join(__dirname, 'paddleocr_worker.py');
 
-// Candidates for the Python 3.11 executable on Windows
-const PYTHON_CANDIDATES = ['py -3.11', 'python3.11', 'python3', 'python'];
+// Cache: key = `${lang}:${device}` → { process, pending: Map<id, {resolve, reject}>, ready: bool }
+const _procs = new Map();
 
-/**
- * Detect which Python command has PaddleOCR available.
- * Returns e.g. ['py', ['-3.11']] or ['python3.11', []]
- */
-async function findPython() {
-  for (const candidate of PYTHON_CANDIDATES) {
-    const parts = candidate.split(' ');
-    const cmd = parts[0];
-    const args = parts.slice(1);
-
-    const ok = await new Promise((resolve) => {
-      const child = spawn(cmd, [...args, '-c', 'import paddleocr; print("ok")'], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 10000,
-      });
-      let out = '';
-      child.stdout.on('data', (d) => { out += d.toString(); });
-      child.on('close', (code) => resolve(code === 0 && out.includes('ok')));
-      child.on('error', () => resolve(false));
-    });
-
-    if (ok) return { cmd, args };
+function getPythonCommand(runtimeConfig = {}) {
+  const raw = (runtimeConfig.paddlePythonPath || runtimeConfig.pythonPath || '').trim();
+  if (!raw) {
+    return process.platform === 'win32' ? { cmd: 'py', args: ['-3'] } : { cmd: 'python3', args: [] };
   }
-  throw new Error(
-    'PaddleOCR not found. Install with: py -3.11 -m pip install paddleocr paddlepaddle'
-  );
+  const parts = raw.match(/"[^"]+"|'[^']+'|\S+/g) || [];
+  const normalized = parts.map(p => p.replace(/^['"]|['"]$/g, ''));
+  return { cmd: normalized[0], args: normalized.slice(1) };
 }
 
-let _pythonInfo = null;
-async function getPython() {
-  if (!_pythonInfo) _pythonInfo = await findPython();
-  return _pythonInfo;
-}
+function launchWorker(lang, device, runtimeConfig) {
+  const key = `${lang}:${device}`;
+  if (_procs.has(key)) return _procs.get(key);
 
-/**
- * Run OCR on a single image.
- * Matches the standard provider interface: { apiKey, model, imageBase64, prompt, baseUrl, lang }
- * For PaddleOCR, apiKey/model/prompt/baseUrl are ignored; lang is the ISO language code.
- * @param {object} opts
- * @param {string} opts.imageBase64 - PNG/JPG base64
- * @param {string} [opts.lang='en'] - ISO language code (optional, mapped internally)
- * @returns {Promise<string>} extracted text
- */
-async function ocr({ imageBase64, lang = 'en' } = {}) {
-  const { cmd, args } = await getPython();
+  const { cmd, args } = getPythonCommand(runtimeConfig);
+  const child = spawn(cmd, [...args, WORKER_PATH, lang, device], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, [...args, WORKER_SCRIPT, lang], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  const entry = {
+    process: child,
+    pending: new Map(),
+    ready: false,
+    readyWaiters: [],
+    runtimeConfig,
+  };
+  _procs.set(key, entry);
 
-    let stdout = '';
-    let stderr = '';
+  let buf = '';
+  let stderrBuf = '';
 
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
-
-    child.on('close', (code) => {
+  child.stdout.on('data', chunk => {
+    buf += chunk.toString();
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
       try {
-        const result = JSON.parse(stdout.trim());
-        if (result.error) {
-          return reject(new Error(`PaddleOCR worker error: ${result.error}`));
+        const msg = JSON.parse(line);
+        if (msg.type === 'ready') {
+          entry.ready = true;
+          for (const fn of entry.readyWaiters) fn(null);
+          entry.readyWaiters = [];
+          continue;
         }
-        resolve(result.text || '');
-      } catch {
-        const errMsg = stderr || stdout || `Process exited with code ${code}`;
-        reject(new Error(`PaddleOCR failed: ${errMsg.slice(0, 500)}`));
-      }
-    });
+        if (msg.id && entry.pending.has(msg.id)) {
+          const { resolve, reject } = entry.pending.get(msg.id);
+          entry.pending.delete(msg.id);
+          if (msg.error) {
+            reject(new Error(msg.error));
+          } else {
+            resolve(msg.text || '');
+          }
+        }
+      } catch {}
+    }
+  });
 
-    child.on('error', (err) => {
-      reject(new Error(`Failed to spawn PaddleOCR worker: ${err.message}`));
-    });
+  child.stderr.on('data', chunk => {
+    stderrBuf += chunk.toString();
+    // Keep only the last 3000 chars to avoid unbounded growth
+    if (stderrBuf.length > 3000) stderrBuf = stderrBuf.slice(-3000);
+  });
 
-    // Write base64 image to worker stdin
-    child.stdin.write(imageBase64);
-    child.stdin.end();
+  child.on('error', err => {
+    const detail = stderrBuf.trim() ? `\n${stderrBuf.trim()}` : '';
+    const msg = `PaddleOCR worker failed to start: ${err.message}. Install paddlepaddle + paddleocr and check your Python path in Settings.${detail}`;
+    for (const fn of entry.readyWaiters) fn(new Error(msg));
+    entry.readyWaiters = [];
+    for (const { reject } of entry.pending.values()) reject(new Error(msg));
+    entry.pending.clear();
+    _procs.delete(key);
+  });
+
+  child.on('close', code => {
+    if (!entry.ready) {
+      // Process exited before signalling ready — surface stderr immediately
+      const detail = stderrBuf.trim()
+        ? `\nPython output:\n${stderrBuf.trim()}`
+        : '';
+      const msg = `PaddleOCR worker exited (code ${code}) before becoming ready. Check that paddlepaddle and paddleocr are installed for your Python.${detail}`;
+      const err = new Error(msg);
+      for (const fn of entry.readyWaiters) fn(err);
+      entry.readyWaiters = [];
+      for (const { reject } of entry.pending.values()) reject(err);
+      entry.pending.clear();
+    } else if (code !== 0 && entry.pending.size > 0) {
+      const detail = stderrBuf.trim() ? `\n${stderrBuf.trim()}` : '';
+      const msg = `PaddleOCR worker exited unexpectedly (code ${code}). Check Settings → PaddleOCR for Python path.${detail}`;
+      for (const { reject } of entry.pending.values()) reject(new Error(msg));
+      entry.pending.clear();
+    }
+    _procs.delete(key);
+  });
+
+  return entry;
+}
+
+function waitReady(entry) {
+  if (entry.ready) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    entry.readyWaiters.push(err => err ? reject(err) : resolve());
   });
 }
 
-module.exports = { ocr };
+async function ocr({ imageBase64, lang = 'en', runtimeConfig = {} } = {}) {
+  const device = runtimeConfig.paddleDevice || 'auto';
+  const key = `${lang}:${device}`;
+  const entry = launchWorker(lang, device, runtimeConfig);
+
+  // Wait for the worker to signal ready (model loaded)
+  await Promise.race([
+    waitReady(entry),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('PaddleOCR worker did not start within 120s. Check your Python environment.')), 120000)),
+  ]);
+
+  const id = uuidv4();
+  return new Promise((resolve, reject) => {
+    entry.pending.set(id, { resolve, reject });
+    try {
+      entry.process.stdin.write(JSON.stringify({ id, imageBase64, lang, device }) + '\n');
+    } catch (err) {
+      entry.pending.delete(id);
+      _procs.delete(key);
+      reject(new Error(`Could not send request to PaddleOCR worker: ${err.message}`));
+    }
+  });
+}
+
+/** Terminate all cached workers (e.g. when settings change) */
+async function resetPythonCache() {
+  for (const [key, entry] of _procs) {
+    try {
+      entry.process.stdin.write(JSON.stringify({ type: 'exit' }) + '\n');
+    } catch {}
+    try { entry.process.kill(); } catch {}
+    _procs.delete(key);
+  }
+}
+
+module.exports = { ocr, resetPythonCache };

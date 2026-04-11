@@ -29,7 +29,7 @@ async function ocr({ apiKey, model, imageBase64, prompt }) {
     },
     body: JSON.stringify({
       model:      model || DEFAULT_MODEL,
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [{
         role: 'user',
         content: [
@@ -56,4 +56,22 @@ async function ocr({ apiKey, model, imageBase64, prompt }) {
   return data.content?.[0]?.text || '';
 }
 
-module.exports = { ocr };
+async function listModels({ apiKey }) {
+  if (!apiKey) throw new Error('Anthropic API key is required');
+  const response = await fetch('https://api.anthropic.com/v1/models', {
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`Anthropic error ${response.status}: ${err?.error?.message || response.statusText}`);
+  }
+  const data = await response.json();
+  // Filter to models that support vision (have "claude" in name)
+  const models = (data.data || []).map(m => m.id).filter(id => id.includes('claude'));
+  return models;
+}
+
+module.exports = { ocr, listModels };

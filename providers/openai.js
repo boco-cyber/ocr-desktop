@@ -49,4 +49,22 @@ async function ocr({ apiKey, model, imageBase64, prompt }) {
   return data.choices?.[0]?.message?.content || '';
 }
 
-module.exports = { ocr };
+async function listModels({ apiKey }) {
+  if (!apiKey) throw new Error('OpenAI API key is required');
+  const response = await fetch('https://api.openai.com/v1/models', {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`OpenAI error ${response.status}: ${err?.error?.message || response.statusText}`);
+  }
+  const data = await response.json();
+  // Keep vision-capable gpt-4 models only
+  const models = (data.data || [])
+    .map(m => m.id)
+    .filter(id => /^gpt-4/.test(id))
+    .sort((a, b) => b.localeCompare(a));
+  return models;
+}
+
+module.exports = { ocr, listModels };

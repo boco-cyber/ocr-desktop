@@ -11,12 +11,13 @@ const openaiProvider     = require('./providers/openai');
 const geminiProvider     = require('./providers/gemini');
 const ollamaProvider     = require('./providers/ollama');
 const paddleocrProvider  = require('./providers/paddleocr');
+const tesseractProvider  = require('./providers/tesseract');
 const imageConverter    = require('./converters/image');
 const pdfConverter      = require('./converters/pdf');
 const { buildDocx }     = require('./output/docx');
 
 const PORT     = process.env.PORT || 3444;
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.APP_DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH  = path.join(DATA_DIR, 'ocr_jobs.json');
 
 // ── Providers ──────────────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ const PROVIDERS = {
   gemini:     geminiProvider,
   ollama:     ollamaProvider,
   paddleocr:  paddleocrProvider,
+  tesseract:  tesseractProvider,
 };
 
 // ── Pricing (USD per 1M tokens) ────────────────────────────────────────────
@@ -79,6 +81,54 @@ function saveDB(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
 }
 
+const ACTIVE_RUNNERS = new Set();
+const PAUSE_POLL_MS = 500;
+
+function getRangeBounds(job, pageFrom = job?.config?.pageFrom, pageTo = job?.config?.pageTo) {
+  const lastPage = Math.max(0, (job?.pageCount || 1) - 1);
+  const from = Number.isInteger(pageFrom) && pageFrom >= 0 ? Math.min(pageFrom, lastPage) : 0;
+  const to = Number.isInteger(pageTo) && pageTo >= 0 ? Math.min(pageTo, lastPage) : lastPage;
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
+function getSelectedIndices(job, pageFrom = job?.config?.pageFrom, pageTo = job?.config?.pageTo) {
+  if (!job || !job.pageCount) return [];
+  const { from, to } = getRangeBounds(job, pageFrom, pageTo);
+  return Array.from({ length: job.pageCount }, (_, i) => i).filter(i => i >= from && i <= to);
+}
+
+function getSelectedCounts(job) {
+  const indices = getSelectedIndices(job);
+  let done = 0;
+  let failed = 0;
+  for (const index of indices) {
+    const status = job.pages[index]?.status;
+    if (status === 'done') done += 1;
+    if (status === 'failed') failed += 1;
+  }
+  return { done, failed, total: indices.length };
+}
+
+function selectedPagesAllDone(job) {
+  const indices = getSelectedIndices(job);
+  return indices.length > 0 && indices.every(i => job.pages[i]?.status === 'done');
+}
+
+function selectedPagesAllFinished(job) {
+  const indices = getSelectedIndices(job);
+  return indices.length > 0 && indices.every(i => ['done', 'failed'].includes(job.pages[i]?.status));
+}
+
+async function waitWhilePaused(jobId) {
+  while (true) {
+    const db = loadDB();
+    const job = db.jobs[jobId];
+    if (!job || job.status === 'cancelled' || job.fatalError) return false;
+    if (job.status !== 'paused') return true;
+    await new Promise(resolve => setTimeout(resolve, PAUSE_POLL_MS));
+  }
+}
+
 // ── RTL language detection ──────────────────────────────────────────────────
 const RTL_LANGS = ['arabic', 'hebrew', 'persian', 'farsi', 'urdu', 'pashto', 'yiddish', 'ar', 'he', 'fa', 'ur', 'ps', 'yi'];
 function isRTLLanguage(lang) {
@@ -92,9 +142,9 @@ function detectRTLFromText(text) {
   return allChars > 20 && rtlChars / allChars > 0.3;
 }
 
-// ── Unicode script detector (for PaddleOCR auto-lang) ──────────────────────
-// Detects the dominant script from a sample of text output.
-// Returns { lang, paddleLang, rtl, script }
+// ── Unicode script detector ────────────────────────────────────────────────
+// Detects the dominant script from OCR text output.
+// Returns { lang, rtl, script }
 function detectScriptFromText(text) {
   if (!text || !text.trim()) return null;
   const counts = {
@@ -111,51 +161,38 @@ function detectScriptFromText(text) {
   const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
   if (!dominant || dominant[1] < 5) return null;
   const scriptMap = {
-    arabic:     { lang: 'Arabic',     paddleLang: 'ar',    rtl: true  },
-    hebrew:     { lang: 'Hebrew',     paddleLang: 'en',    rtl: true  },
-    cjk:        { lang: 'Chinese',    paddleLang: 'ch',    rtl: false },
-    korean:     { lang: 'Korean',     paddleLang: 'korean',rtl: false },
-    cyrillic:   { lang: 'Russian',    paddleLang: 'ru',    rtl: false },
-    devanagari: { lang: 'Hindi',      paddleLang: 'hi',    rtl: false },
-    thai:       { lang: 'Thai',       paddleLang: 'th',    rtl: false },
-    greek:      { lang: 'Greek',      paddleLang: 'el',    rtl: false },
-    latin:      { lang: 'English',    paddleLang: 'en',    rtl: false },
+    arabic:     { lang: 'Arabic',   rtl: true  },
+    hebrew:     { lang: 'Hebrew',   rtl: true  },
+    cjk:        { lang: 'Chinese',  rtl: false },
+    korean:     { lang: 'Korean',   rtl: false },
+    cyrillic:   { lang: 'Russian',  rtl: false },
+    devanagari: { lang: 'Hindi',    rtl: false },
+    thai:       { lang: 'Thai',     rtl: false },
+    greek:      { lang: 'Greek',    rtl: false },
+    latin:      { lang: 'English',  rtl: false },
   };
   return { script: dominant[0], ...scriptMap[dominant[0]] };
 }
 
-// Run a quick PaddleOCR pass (english model) on page 0 to detect script
-const { spawn } = require('child_process');
-const PADDLE_WORKER = path.join(__dirname, 'providers', 'paddleocr_worker.py');
-const PYTHON_CMD = process.platform === 'win32' ? 'py' : 'python3';
-const PYTHON_ARGS = process.platform === 'win32' ? ['-3.11'] : [];
-
-function detectScriptFromImage(imageBase64) {
-  return new Promise((resolve) => {
-    const child = spawn(PYTHON_CMD, [...PYTHON_ARGS, PADDLE_WORKER, 'en'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    child.stdout.on('data', d => { stdout += d.toString(); });
-    child.on('close', () => {
-      try {
-        const result = JSON.parse(stdout.trim());
-        const detected = detectScriptFromText(result.text || '');
-        resolve(detected);
-      } catch {
-        resolve(null);
-      }
-    });
-    child.on('error', () => resolve(null));
-    child.stdin.write(imageBase64);
-    child.stdin.end();
-  });
+// Use Tesseract.js (English model) on page 0 to detect script — no Python needed
+async function detectScriptFromImage(imageBase64) {
+  try {
+    const { createWorker } = require('tesseract.js');
+    const worker = await createWorker('eng', 1, { logger: () => {}, errorHandler: () => {} });
+    const buffer = Buffer.from(imageBase64, 'base64');
+    const { data } = await worker.recognize(buffer);
+    await worker.terminate();
+    return detectScriptFromText(data.text || '');
+  } catch {
+    return null;
+  }
 }
 
 // ── OCR mode instructions ──────────────────────────────────────────────────
 const OCR_MODE_PROMPTS = {
   book:        'This is a scanned book or article page. Preserve paragraph breaks, chapter titles, and section headings. Maintain the reading flow. Ignore page numbers and running headers.',
   photo:       'This image may be skewed, rotated, low-contrast, or photographed at an angle. Correct for perspective distortion mentally and extract all readable text. If parts are unreadable, mark them [unreadable].',
+  structure:   'This is a structured document page. Identify and preserve document roles such as titles, subtitles, body text, headers, footers, and footnotes. Output each recognized block with one label on its own line using ONLY these tags: [TITLE], [SUBTITLE], [BODY], [HEADER], [FOOTER], [FOOTNOTE]. Put the corresponding text on the following line(s). Preserve reading order from top to bottom. Repeat tags as needed. Do not invent missing sections. If a block is uncertain, classify it as [BODY].',
   table:       'This document contains tables. Extract all table data preserving rows and columns. Use | to separate columns and a blank line between rows. Preserve column headers.',
   handwriting: 'This is handwritten text. Do your best to decipher the handwriting accurately. Preserve line breaks. If a word is unclear, write [unclear] instead of guessing.',
   receipt:     'This is a receipt or invoice. Extract: vendor name, date, all line items with quantities and prices, subtotal, tax, and total amount. Format as a clean list.',
@@ -169,12 +206,122 @@ function buildOCRPrompt(language, customPrompt, pageIndex, pageCount, ocrMode) {
   const langHint   = language ? ` The document is written in ${language}.` : ' Auto-detect the language of the text.';
   const pageHint   = pageCount > 1 ? ` This is page ${pageIndex + 1} of ${pageCount}.` : '';
   const modeHint   = (ocrMode && OCR_MODE_PROMPTS[ocrMode]) ? ' ' + OCR_MODE_PROMPTS[ocrMode] : '';
-  return `You are a professional OCR (Optical Character Recognition) system.${langHint}${pageHint}${modeHint} Extract ALL text from this image exactly as it appears. Preserve the original layout, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.`;
+  return `You are a professional OCR (Optical Character Recognition) system.${langHint}${pageHint}${modeHint} Extract ALL text from this image exactly as it appears. Preserve the original layout, visual hierarchy, line breaks, paragraph spacing, indentation, and structural formatting as faithfully as possible. When titles, subtitles, headers, footers, footnotes, or body text are visually distinct, preserve that distinction in the plain-text output. Output ONLY the extracted text — no commentary, no descriptions, no metadata. If the image contains no readable text, output an empty string.`;
 }
 
 // ── Language detection prompt ──────────────────────────────────────────────
 function buildDetectPrompt() {
   return `Look at this image and identify the primary language of the text. Reply with ONLY a JSON object in this exact format: {"language":"English","rtl":false}. Set rtl to true for Arabic, Hebrew, Persian, Urdu, etc. Use the full English language name.`;
+}
+
+async function runOCRJob(jobId, runtimeOptions = {}) {
+  if (ACTIVE_RUNNERS.has(jobId)) return;
+  ACTIVE_RUNNERS.add(jobId);
+
+  try {
+    while (true) {
+      const dbCheck = loadDB();
+      const job = dbCheck.jobs[jobId];
+      if (!job || job.status === 'cancelled' || job.fatalError) break;
+
+      const shouldContinue = await waitWhilePaused(jobId);
+      if (!shouldContinue) break;
+
+      const dbCurrent = loadDB();
+      const currentJob = dbCurrent.jobs[jobId];
+      if (!currentJob || currentJob.status !== 'processing') break;
+
+      const cfg = currentJob.config || {};
+      const provider = runtimeOptions.provider || cfg.provider;
+      const model = runtimeOptions.model || cfg.model;
+      const apiKey = runtimeOptions.apiKey;
+      const ollamaBaseUrl = runtimeOptions.ollamaBaseUrl || cfg.ollamaBaseUrl;
+      const effectiveLang = runtimeOptions.language || cfg.language || currentJob.detectedLang || null;
+      const maxConcurrent = Math.min(
+        Math.max(1, parseInt(runtimeOptions.concurrency || cfg.concurrency) || ((provider === 'ollama' || provider === 'paddleocr') ? 1 : 3)),
+        (provider === 'ollama' || provider === 'paddleocr') ? 2 : 5
+      );
+
+      const pendingIndices = getSelectedIndices(currentJob).filter(i => currentJob.pages[i]?.status === 'pending');
+
+      if (!pendingIndices.length) {
+        const dbFinal = loadDB();
+        const finalJob = dbFinal.jobs[jobId];
+        if (!finalJob) break;
+
+        if (selectedPagesAllDone(finalJob)) {
+          finalJob.status = 'done';
+        } else if (selectedPagesAllFinished(finalJob)) {
+          finalJob.status = 'failed';
+        }
+        saveDB(dbFinal);
+        break;
+      }
+
+      const chunk = pendingIndices.slice(0, maxConcurrent);
+
+      const dbMark = loadDB();
+      for (const index of chunk) {
+        if (dbMark.jobs[jobId].pages[index]?.status === 'pending') {
+          dbMark.jobs[jobId].pages[index].status = 'processing';
+        }
+      }
+      saveDB(dbMark);
+
+      await Promise.all(chunk.map(async (index) => {
+        const dbNow = loadDB();
+        if (dbNow.jobs[jobId]?.status === 'cancelled' || dbNow.jobs[jobId]?.fatalError) return;
+
+        const imageBase64 = dbNow.jobs[jobId].pages[index].imageBase64;
+        const prompt = buildOCRPrompt(effectiveLang, cfg.customPrompt, index, currentJob.pageCount, cfg.ocrMode);
+
+        try {
+          const text = await PROVIDERS[provider].ocr({
+            apiKey,
+            model,
+            imageBase64,
+            prompt,
+            baseUrl: ollamaBaseUrl,
+            lang: effectiveLang,
+          });
+
+          const dbDone = loadDB();
+          const page = dbDone.jobs[jobId]?.pages[index];
+          if (!page) return;
+          page.status = 'done';
+          dbDone.jobs[jobId].ocrResults[index] = text;
+
+          if (index === 0 && !dbDone.jobs[jobId].detectedLang && detectRTLFromText(text)) {
+            dbDone.jobs[jobId].rtl = true;
+          }
+
+          if (selectedPagesAllDone(dbDone.jobs[jobId])) {
+            dbDone.jobs[jobId].status = 'done';
+          }
+          saveDB(dbDone);
+        } catch (err) {
+          console.error(`OCR page ${index} error:`, err.message);
+          const dbFail = loadDB();
+          const jobFail = dbFail.jobs[jobId];
+          if (!jobFail?.pages[index]) return;
+
+          jobFail.pages[index].status = 'failed';
+          jobFail.pages[index].error = err.message;
+          jobFail.ocrResults[index] = null;
+
+          if (isFatal(err.message)) {
+            jobFail.status = 'failed';
+            jobFail.fatalError = err.message;
+          } else if (selectedPagesAllFinished(jobFail)) {
+            jobFail.status = 'failed';
+          }
+          saveDB(dbFail);
+        }
+      }));
+    }
+  } finally {
+    ACTIVE_RUNNERS.delete(jobId);
+  }
 }
 
 // ── Express setup ──────────────────────────────────────────────────────────
@@ -264,7 +411,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
             const db3 = loadDB();
             if (db3.jobs[jobId]) {
               db3.jobs[jobId].detectedLang    = detected.lang;
-              db3.jobs[jobId].detectedPaddleLang = detected.paddleLang;
               db3.jobs[jobId].rtl             = detected.rtl;
               db3.jobs[jobId].scriptDetected  = true;
               saveDB(db3);
@@ -309,7 +455,6 @@ app.get('/api/upload-status/:jobId', (req, res) => {
     totalBase64Bytes:  job.totalBase64Bytes || 0,
     fatalError:        job.fatalError || null,
     detectedLang:      job.detectedLang      || null,
-    detectedPaddleLang: job.detectedPaddleLang || null,
     rtl:               job.rtl               || false,
     scriptDetected:    job.scriptDetected,   // true=detected, false=unknown, undefined=still running
   });
@@ -430,11 +575,7 @@ app.post('/api/ocr', async (req, res) => {
   if (job.status === 'processing') return res.status(400).json({ error: 'Already processing' });
 
   // Use detected language if none provided
-  // For PaddleOCR, prefer detectedPaddleLang (pre-mapped ISO code like 'ar') over full name
   const effectiveLang = language || job.detectedLang || null;
-  const effectivePaddleLang = provider === 'paddleocr'
-    ? (language || job.detectedPaddleLang || job.detectedLang || 'en')
-    : effectiveLang;
 
   // Concurrency: how many pages to process in parallel
   // Ollama = 1 (single local GPU), cloud APIs = up to 5
@@ -444,92 +585,27 @@ app.post('/api/ocr', async (req, res) => {
     isLocal ? 2 : 5
   );
 
-  // Validate and normalise page range
-  const rangeFrom = (Number.isInteger(pageFrom) && pageFrom >= 0) ? pageFrom : 0;
-  const rangeTo   = (Number.isInteger(pageTo)   && pageTo   >= 0) ? Math.min(pageTo, job.pageCount - 1) : job.pageCount - 1;
+  const { from: rangeFrom, to: rangeTo } = getRangeBounds(job, pageFrom, pageTo);
+  const targetIndices = getSelectedIndices(job, rangeFrom, rangeTo);
 
+  for (const index of targetIndices) {
+    job.pages[index].status = 'pending';
+    job.pages[index].error = null;
+    job.ocrResults[index] = null;
+  }
   job.status = 'processing';
   job.config = { provider, model, language: effectiveLang, ocrMode: ocrMode || 'standard', customPrompt, ollamaBaseUrl, concurrency: maxConcurrent, pageFrom: rangeFrom, pageTo: rangeTo };
   saveDB(db);
 
-  res.json({ jobId, pageCount: job.pageCount, concurrency: maxConcurrent });
-
-  // ── Chunked parallel OCR loop ──────────────────────────────────────────
-  (async () => {
-    const indices = Array.from({ length: job.pageCount }, (_, i) => i)
-      .filter(i => i >= rangeFrom && i <= rangeTo);
-
-    // Process in chunks of maxConcurrent
-    for (let chunkStart = 0; chunkStart < indices.length; chunkStart += maxConcurrent) {
-      // Check for cancellation before each chunk
-      const dbCheck = loadDB();
-      if (dbCheck.jobs[jobId]?.status === 'cancelled') break;
-      if (dbCheck.jobs[jobId]?.fatalError) break;
-
-      const chunk = indices.slice(chunkStart, chunkStart + maxConcurrent);
-
-      // Mark all pages in chunk as processing
-      const dbMark = loadDB();
-      for (const i of chunk) {
-        if (dbMark.jobs[jobId].pages[i].status === 'pending') {
-          dbMark.jobs[jobId].pages[i].status = 'processing';
-        }
-      }
-      saveDB(dbMark);
-
-      // Run chunk in parallel
-      await Promise.all(chunk.map(async (i) => {
-        const dbNow = loadDB();
-        if (dbNow.jobs[jobId]?.status === 'cancelled') return;
-
-        const prompt      = buildOCRPrompt(effectiveLang, customPrompt, i, job.pageCount, ocrMode);
-        const imageBase64 = job.pages[i].imageBase64;
-
-        try {
-          const text = await PROVIDERS[provider].ocr({
-            apiKey,
-            model,
-            imageBase64,
-            prompt,
-            baseUrl: ollamaBaseUrl,
-            lang: provider === 'paddleocr' ? effectivePaddleLang : effectiveLang,
-          });
-
-          const db2 = loadDB();
-          db2.jobs[jobId].pages[i].status  = 'done';
-          db2.jobs[jobId].ocrResults[i]    = text;
-
-          // Auto-detect RTL from first page if not already known
-          if (i === 0 && !db2.jobs[jobId].detectedLang) {
-            if (detectRTLFromText(text)) db2.jobs[jobId].rtl = true;
-          }
-
-          const doneCount = db2.jobs[jobId].pages.filter(p => p.status === 'done').length;
-          if (doneCount === db2.jobs[jobId].pageCount) db2.jobs[jobId].status = 'done';
-          saveDB(db2);
-
-        } catch (err) {
-          console.error(`OCR page ${i} error:`, err.message);
-          const db2 = loadDB();
-          db2.jobs[jobId].pages[i].status = 'failed';
-          db2.jobs[jobId].pages[i].error  = err.message;
-
-          if (isFatal(err.message)) {
-            db2.jobs[jobId].status     = 'failed';
-            db2.jobs[jobId].fatalError = err.message;
-          } else {
-            const allFinished = db2.jobs[jobId].pages.every(p => p.status === 'done' || p.status === 'failed');
-            if (allFinished) db2.jobs[jobId].status = 'failed';
-          }
-          saveDB(db2);
-        }
-      }));
-
-      // If a fatal error occurred, stop processing
-      const dbAfter = loadDB();
-      if (dbAfter.jobs[jobId]?.fatalError) break;
-    }
-  })();
+  res.json({ jobId, pageCount: job.pageCount, selectedCount: targetIndices.length, concurrency: maxConcurrent });
+  runOCRJob(jobId, {
+    provider,
+    model,
+    apiKey,
+    language: effectiveLang,
+    ollamaBaseUrl,
+    concurrency: maxConcurrent,
+  });
 });
 
 // ── Status polling ────────────────────────────────────────────────────────
@@ -538,9 +614,7 @@ app.get('/api/status/:jobId', (req, res) => {
   const job = db.jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Not found' });
 
-  const done   = job.pages.filter(p => p.status === 'done').length;
-  const failed = job.pages.filter(p => p.status === 'failed').length;
-  const total  = job.pageCount;
+  const { done, failed, total } = getSelectedCounts(job);
 
   res.json({
     status:       job.status,
@@ -548,6 +622,9 @@ app.get('/api/status/:jobId', (req, res) => {
     done,
     failed,
     total,
+    pageCount:    job.pageCount,
+    pageFrom:     job.config?.pageFrom ?? 0,
+    pageTo:       job.config?.pageTo ?? Math.max(0, job.pageCount - 1),
     fatalError:   job.fatalError || null,
     rtl:          job.rtl || false,
     detectedLang: job.detectedLang || null,
@@ -586,73 +663,130 @@ app.post('/api/cancel/:jobId', (req, res) => {
   const db  = loadDB();
   const job = db.jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Not found' });
-  if (job.status !== 'processing') return res.status(400).json({ error: 'Not processing' });
+  if (!['processing', 'paused'].includes(job.status)) return res.status(400).json({ error: 'Not processing' });
   db.jobs[req.params.jobId].status = 'cancelled';
   saveDB(db);
   res.json({ ok: true });
 });
 
+app.post('/api/pause/:jobId', (req, res) => {
+  const db = loadDB();
+  const job = db.jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  if (job.status !== 'processing') return res.status(400).json({ error: 'Job is not running' });
+  job.status = 'paused';
+  saveDB(db);
+  res.json({ ok: true, status: 'paused' });
+});
+
+app.post('/api/resume/:jobId', (req, res) => {
+  const { provider, model, apiKey, language, ocrMode, customPrompt, ollamaBaseUrl, concurrency } = req.body || {};
+  const db = loadDB();
+  const job = db.jobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: 'Not found' });
+  if (job.status !== 'paused') return res.status(400).json({ error: 'Job is not paused' });
+
+  const cfg = job.config || {};
+  job.status = 'processing';
+  job.config = {
+    ...cfg,
+    provider: provider || cfg.provider,
+    model: model || cfg.model,
+    language: language || cfg.language,
+    ocrMode: ocrMode || cfg.ocrMode || 'standard',
+    customPrompt: customPrompt ?? cfg.customPrompt,
+    ollamaBaseUrl: ollamaBaseUrl || cfg.ollamaBaseUrl,
+    concurrency: concurrency ? Math.max(1, parseInt(concurrency) || cfg.concurrency || 1) : cfg.concurrency,
+  };
+
+  if (!ACTIVE_RUNNERS.has(job.id)) {
+    for (const index of getSelectedIndices(job)) {
+      if (job.pages[index]?.status === 'processing') {
+        job.pages[index].status = 'pending';
+      }
+    }
+  }
+  saveDB(db);
+
+  runOCRJob(job.id, {
+    provider: job.config.provider,
+    model: job.config.model,
+    apiKey,
+    language: job.config.language,
+    ocrMode: job.config.ocrMode,
+    customPrompt: job.config.customPrompt,
+    ollamaBaseUrl: job.config.ollamaBaseUrl,
+    concurrency: job.config.concurrency,
+  });
+
+  res.json({ ok: true, status: 'processing' });
+});
+
 // ── Retry failed pages ─────────────────────────────────────────────────────
 app.post('/api/retry/:jobId', async (req, res) => {
-  const { provider, model, apiKey, language, ollamaBaseUrl } = req.body;
+  const {
+    provider,
+    model,
+    apiKey,
+    language,
+    ocrMode,
+    customPrompt,
+    ollamaBaseUrl,
+    concurrency,
+    pageFrom,
+    pageTo,
+    failedOnly = true,
+  } = req.body || {};
   const db  = loadDB();
   const job = db.jobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: 'Not found' });
 
-  const failedPages = job.pages.filter(p => p.status === 'failed');
-  if (!failedPages.length) return res.status(400).json({ error: 'No failed pages' });
+  const cfg = job.config || {};
+  const retryProvider = provider || cfg.provider;
+  if (!retryProvider || !PROVIDERS[retryProvider]) return res.status(400).json({ error: 'Invalid provider' });
 
-  failedPages.forEach(p => { p.status = 'pending'; p.error = null; });
-  job.status     = 'processing';
+  const { from: retryFrom, to: retryTo } = getRangeBounds(job, pageFrom, pageTo);
+  const candidateIndices = getSelectedIndices(job, retryFrom, retryTo);
+  const retryIndices = failedOnly
+    ? candidateIndices.filter(i => job.pages[i]?.status === 'failed')
+    : candidateIndices;
+
+  if (!retryIndices.length) {
+    return res.status(400).json({ error: failedOnly ? 'No failed pages in that range' : 'No pages selected' });
+  }
+
+  retryIndices.forEach(index => {
+    job.pages[index].status = 'pending';
+    job.pages[index].error = null;
+    job.ocrResults[index] = null;
+  });
+  job.status = 'processing';
   job.fatalError = null;
-  if (provider) job.config = { ...job.config, provider, model, ollamaBaseUrl };
+  job.config = {
+    ...cfg,
+    provider: retryProvider,
+    model: model || cfg.model,
+    language: language || cfg.language || job.detectedLang || null,
+    ocrMode: ocrMode || cfg.ocrMode || 'standard',
+    customPrompt: customPrompt ?? cfg.customPrompt,
+    ollamaBaseUrl: ollamaBaseUrl || cfg.ollamaBaseUrl,
+    concurrency: concurrency ? Math.max(1, parseInt(concurrency) || cfg.concurrency || 1) : cfg.concurrency,
+    pageFrom: retryFrom,
+    pageTo: retryTo,
+  };
   saveDB(db);
 
-  res.json({ jobId: job.id, retrying: failedPages.length });
-
-  const cfg        = job.config;
-  const useLang    = language || cfg.language || job.detectedLang;
-  const useProvider = cfg.provider || provider;
-  const usePaddleLang = useProvider === 'paddleocr'
-    ? (language || job.detectedPaddleLang || job.detectedLang || 'en')
-    : useLang;
-  const concurrent = cfg.concurrency || (provider === 'ollama' ? 1 : 3);
-
-  (async () => {
-    for (let i = 0; i < failedPages.length; i += concurrent) {
-      const chunk = failedPages.slice(i, i + concurrent);
-      const dbChk = loadDB();
-      if (dbChk.jobs[job.id]?.status === 'cancelled') break;
-
-      await Promise.all(chunk.map(async (page) => {
-        const prompt = buildOCRPrompt(useLang, cfg.customPrompt, page.index, job.pageCount, cfg.ocrMode);
-        try {
-          const text = await PROVIDERS[cfg.provider || provider].ocr({
-            apiKey:      apiKey || cfg.apiKey,
-            model:       cfg.model || model,
-            imageBase64: job.pages[page.index].imageBase64,
-            prompt,
-            baseUrl:     cfg.ollamaBaseUrl || ollamaBaseUrl,
-            lang:        useProvider === 'paddleocr' ? usePaddleLang : useLang,
-          });
-          const db2 = loadDB();
-          db2.jobs[job.id].pages[page.index].status = 'done';
-          db2.jobs[job.id].ocrResults[page.index]   = text;
-          const doneCount = db2.jobs[job.id].pages.filter(p => p.status === 'done').length;
-          if (doneCount === db2.jobs[job.id].pageCount) db2.jobs[job.id].status = 'done';
-          saveDB(db2);
-        } catch (err) {
-          const db2 = loadDB();
-          db2.jobs[job.id].pages[page.index].status = 'failed';
-          db2.jobs[job.id].pages[page.index].error  = err.message;
-          if (isFatal(err.message)) { db2.jobs[job.id].status = 'failed'; db2.jobs[job.id].fatalError = err.message; }
-          saveDB(db2);
-        }
-      }));
-
-      if (loadDB().jobs[job.id]?.fatalError) break;
-    }
-  })();
+  res.json({ jobId: job.id, retrying: retryIndices.length, failedOnly, pageFrom: retryFrom, pageTo: retryTo });
+  runOCRJob(job.id, {
+    provider: job.config.provider,
+    model: job.config.model,
+    apiKey,
+    language: job.config.language,
+    ocrMode: job.config.ocrMode,
+    customPrompt: job.config.customPrompt,
+    ollamaBaseUrl: job.config.ollamaBaseUrl,
+    concurrency: job.config.concurrency,
+  });
 });
 
 // ── Downloads ─────────────────────────────────────────────────────────────

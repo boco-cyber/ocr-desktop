@@ -1,5 +1,8 @@
 node_modules/
 dist-electron/
+.tools/
 data/
 *.exe
 .env
+build-log.txt
+.claude/
