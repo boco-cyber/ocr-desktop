@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   editor: {
     getDocument: payload => ipcRenderer.invoke('editor:get-document', payload),
     updateDocument: payload => ipcRenderer.invoke('editor:update-document', payload),
+    runAi: payload => ipcRenderer.invoke('editor:run-ai', payload),
   },
   history: {
     listProjects: payload => ipcRenderer.invoke('history:list-projects', payload),

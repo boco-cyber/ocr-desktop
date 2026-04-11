@@ -410,6 +410,10 @@ function registerOCRIpc({ runtime, dataDir }) {
     return editorService.updateDocument(payload.documentId, payload.content);
   });
 
+  ipcMain.handle('editor:run-ai', async (_event, payload) => {
+    return editorService.runAi(payload || {});
+  });
+
   ipcMain.handle('settings:get', async () => {
     return settingsService.getSanitizedSettings();
   });

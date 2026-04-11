@@ -45,7 +45,7 @@ async function createOCRRuntime({ dataDir, appInfo = {}, safeStorageAdapter = nu
     logger,
     getProjectsRoot: () => settingsService.getProjectAssetsRoot('translation'),
   });
-  const editorService = new EditorDocumentService({ dataDir, logger, eventBus });
+  const editorService = new EditorDocumentService({ dataDir, logger, eventBus, settingsService });
   const translationCostEstimator = new TranslationCostEstimator();
   const translationImportService = new TranslationImportService({
     store: translationStore,
