@@ -246,5 +246,144 @@ def main() -> int:
         return 0
 
 
+def daemon_main():
+    """
+    Persistent daemon mode (invoked with --daemon flag).
+    Reads newline-delimited JSON requests from stdin, writes responses to stdout.
+    The model is loaded once on the first translate request and reused for all subsequent ones.
+    """
+    try:
+        import torch
+        from transformers import AutoModelForSeq2SeqLM
+    except Exception as exc:
+        _print({"ok": False, "status": "ready", "error": f"NLLB runtime unavailable: {exc}"})
+        return
+
+    # Signal that the Python process is up and torch/transformers are importable.
+    # Model loading happens lazily on the first translate request.
+    _print({"ok": True, "status": "ready"})
+
+    loaded_model_name = None
+    tokenizer = None
+    model = None
+    device_str = None
+    target_lang_cache = {}
+
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        try:
+            payload = json.loads(line)
+        except Exception:
+            _print({"ok": False, "error": "Invalid JSON request"})
+            continue
+
+        msg_type = payload.get("type", "translate")
+
+        if msg_type == "shutdown":
+            _print({"ok": True})
+            break
+
+        if msg_type == "health-check":
+            try:
+                gpu_info = ""
+                if torch.cuda.is_available():
+                    gpu_name = torch.cuda.get_device_name(0)
+                    vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                    gpu_info = f" (GPU: {gpu_name}, {vram_gb:.1f} GB VRAM)"
+                _print({"ok": True, "gpu_info": gpu_info})
+            except Exception:
+                _print({"ok": True})
+            continue
+
+        if msg_type != "translate":
+            _print({"ok": False, "error": f"Unknown request type: {msg_type}"})
+            continue
+
+        # --- Extract translation params ---
+        model_name    = payload.get("model") or "facebook/nllb-200-distilled-600M"
+        source_lang   = payload.get("sourceLanguage") or DEFAULT_SRC_LANG
+        target_lang   = payload.get("targetLanguage")
+        device_pref   = payload.get("device") or "auto"
+        max_memory_gb = float(payload.get("maxMemoryGb") or 0)
+        raw_text      = payload.get("text", "")
+
+        if isinstance(raw_text, list):
+            text = " ".join(str(t) for t in raw_text)
+        elif raw_text is None:
+            text = ""
+        else:
+            text = str(raw_text)
+        text = clean_text(text)
+
+        if not target_lang:
+            _print({"ok": False, "error": "targetLanguage is required."})
+            continue
+
+        if not text.strip():
+            _print({"ok": True, "text": ""})
+            continue
+
+        # --- Load / reload model when the model name changes ---
+        if model is None or model_name != loaded_model_name:
+            try:
+                new_device_str, dtype_str = resolve_device(device_pref)
+                torch_dtype = torch.float16 if dtype_str == "float16" else torch.float32
+                model_kwargs = {}
+                if max_memory_gb > 0:
+                    limit = f"{max_memory_gb:.1f}GiB"
+                    if new_device_str.startswith("cuda"):
+                        dev_idx = int(new_device_str.split(":")[-1]) if ":" in new_device_str else 0
+                        model_kwargs["max_memory"] = {dev_idx: limit, "cpu": "4GiB"}
+                    else:
+                        model_kwargs["max_memory"] = {"cpu": limit}
+                new_tokenizer = load_tokenizer(model_name, source_lang)
+                new_model = AutoModelForSeq2SeqLM.from_pretrained(
+                    model_name, dtype=torch_dtype, **model_kwargs
+                ).to(new_device_str)
+                new_model.eval()
+                tokenizer        = new_tokenizer
+                model            = new_model
+                device_str       = new_device_str
+                loaded_model_name = model_name
+                target_lang_cache = {}
+            except Exception as exc:
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+                _print({"ok": False, "error": f"Failed to load model: {exc}"})
+                continue
+
+        # --- Resolve target language token ID (cached) ---
+        if target_lang not in target_lang_cache:
+            tid = tokenizer.convert_tokens_to_ids(target_lang)
+            if tid == tokenizer.unk_token_id:
+                _print({"ok": False, "error": f"Unknown NLLB language code: '{target_lang}'."})
+                continue
+            target_lang_cache[target_lang] = tid
+        target_lang_id = target_lang_cache[target_lang]
+
+        # --- Translate ---
+        try:
+            segments = split_into_segments(text, tokenizer, MAX_TOKENS_PER_SEGMENT)
+            translated_parts = []
+            for segment in segments:
+                part = translate_segment(segment, tokenizer, model, device_str, target_lang_id)
+                translated_parts.append(part)
+            translated = (
+                '\n\n'.join(translated_parts) if len(translated_parts) > 1
+                else (translated_parts[0] if translated_parts else '')
+            )
+            _print({"ok": True, "text": translated})
+        except Exception as exc:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            _print({"ok": False, "error": f"NLLB translation failed: {exc}"})
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if "--daemon" in sys.argv:
+        daemon_main()
+    else:
+        raise SystemExit(main())
