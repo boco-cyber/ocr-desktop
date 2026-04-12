@@ -2,6 +2,7 @@ const path = require('path');
 
 const fse = require('fs-extra');
 const fetch = require('node-fetch');
+const { buildDocx } = require('../../../output/docx');
 
 const { ACTIVE_TRANSLATION_RUN_STATES } = require('./stateModel');
 const { healthCheck } = require('./TranslationProviderRouter');
@@ -192,6 +193,21 @@ class TranslationProjectService {
         defaultFileName: `${baseName}_translation.txt`,
         contentType: 'text/plain; charset=utf-8',
         data: Buffer.from(assembledText, 'utf8'),
+      };
+    }
+
+    if (format === 'docx') {
+      const pages = snapshot.chunks.map((chunk, i) => ({
+        index: i,
+        text: chunk.translatedText || chunk.sourceText || '',
+      }));
+      const data = await buildDocx(snapshot.sourceFileName, pages, {
+        rtl: false,
+      });
+      return {
+        defaultFileName: `${baseName}_translation.docx`,
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        data,
       };
     }
 

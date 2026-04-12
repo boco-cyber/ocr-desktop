@@ -2460,6 +2460,10 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <button class="btn btn-danger btn-sm" id="translationStopBtn" onclick="stopTranslation()" disabled>⏹ Stop</button>
         <button class="btn btn-ghost btn-sm" id="translationRetryFailedBtn" onclick="retryFailedTranslation()">🔄 Retry Failed</button>
         <button class="btn btn-ghost btn-sm" id="translationRetryRangeBtn" onclick="retryTranslationRange()">↺ Retry Range</button>
+        <select id="translationExportFormat" style="width:auto;padding:5px 10px;font-size:.82rem">
+          <option value="txt">Plain Text (.txt)</option>
+          <option value="docx">Word Document (.docx)</option>
+        </select>
         <button class="btn btn-ghost btn-sm" onclick="exportTranslation()">⬇ Export</button>
       </div>
 
@@ -3946,6 +3950,29 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
   </div>
 </div>
 
+<!-- ── Translation chunk picker modal (Retry Failed) ──────────────────────── -->
+<div id="translationRetryPickerModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.65);align-items:center;justify-content:center">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);width:580px;max-width:94vw;max-height:82vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+    <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+      <span style="font-weight:700;font-size:.95rem;flex:1">🔄 Retry Translation Chunks</span>
+      <button onclick="_closeTranslationRetryPicker()" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
+    </div>
+    <div style="padding:10px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="_trpSelectAll()">Select All</button>
+      <button class="btn btn-ghost btn-sm" onclick="_trpSelectNone()">Select None</button>
+      <button class="btn btn-ghost btn-sm" onclick="_trpSelectFailed()">Failed Only</button>
+      <button class="btn btn-ghost btn-sm" onclick="_trpSelectPending()">Pending / Skipped</button>
+      <span id="trpCount" style="margin-left:auto;font-size:.8rem;color:var(--muted)"></span>
+    </div>
+    <div id="trpGrid" style="overflow-y:auto;flex:1;padding:12px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px"></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;justify-content:flex-end">
+      <span id="trpSummary" style="flex:1;font-size:.82rem;color:var(--muted)"></span>
+      <button class="btn btn-ghost btn-sm" onclick="_closeTranslationRetryPicker()">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="trpConfirmBtn" onclick="_confirmTranslationRetryPicker()">▶ Retry Selected</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Generic pick-project modal ─────────────────────────────────────────── -->
 <div id="pickProjectModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center">
   <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);width:480px;max-width:92vw;max-height:70vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.5)">
@@ -4062,9 +4089,9 @@ const MODELS = {
 const TRANSLATION_MODELS = {
   ollama: [],
   nllb: ['facebook/nllb-200-distilled-600M', 'facebook/nllb-200-1.3B', 'facebook/nllb-200-3.3B'],
-  openai: ['gpt-4o-mini', 'gpt-4o'],
-  anthropic: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-  gemini: ['gemini-1.5-flash', 'gemini-1.5-pro'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'],
+  anthropic: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'],
+  gemini: ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'],
 };
 
 // ═══════════════════════════════════════════════════════
@@ -4398,7 +4425,14 @@ function handleTranslationSnapshot(snapshot) {
         ollamaSelect.value = snapshot.model;
       }
     } else if (snapshot.model) {
-      document.getElementById('translationModelSelect').value = snapshot.model;
+      const modelSelect = document.getElementById('translationModelSelect');
+      // Add the run's model to the list if it isn't already there (e.g. a newer model not in the static list)
+      if (![...modelSelect.options].some(o => o.value === snapshot.model)) {
+        const opt = document.createElement('option');
+        opt.value = opt.textContent = snapshot.model;
+        modelSelect.appendChild(opt);
+      }
+      modelSelect.value = snapshot.model;
     }
 
     // Estimate only needed once when project loads, not on every chunk update
@@ -6143,9 +6177,10 @@ function _pickProjectItem(index) {
   const modal = document.getElementById('pickProjectModal');
   const projects = JSON.parse(modal.querySelector('#pickProjectModalList').dataset.projects || '[]');
   const project = projects[index];
+  const cb = _pickProjectModalCallback;
   _closePickProjectModal();
-  if (project && _pickProjectModalCallback) {
-    _pickProjectModalCallback(project);
+  if (project && cb) {
+    cb(project);
   }
 }
 
@@ -6179,14 +6214,18 @@ async function importTranslationFromOcr() {
     return;
   }
   _showPickProjectModal('Import OCR Project into Translator', ocrProjects, async project => {
-    const snapshot = await window.electronAPI.translation.importOcrProject({
-      ocrProjectId: project.id,
-      targetLanguage: document.getElementById('translationTargetLang').value,
-      maxChars: parseInt(document.getElementById('translationChunkSize').value, 10) || 1400,
-    });
-    showPage('translator');
-    handleTranslationSnapshot(snapshot);
-    showToast('OCR project imported into Translator.', 'ok');
+    try {
+      const snapshot = await window.electronAPI.translation.importOcrProject({
+        ocrProjectId: project.id,
+        targetLanguage: document.getElementById('translationTargetLang').value,
+        maxChars: parseInt(document.getElementById('translationChunkSize').value, 10) || 1400,
+      });
+      showPage('translator');
+      handleTranslationSnapshot(snapshot);
+      showToast('OCR project imported into Translator.', 'ok');
+    } catch (err) {
+      showToast(err.message || 'Could not import OCR project.', 'err');
+    }
   });
 }
 
@@ -6280,23 +6319,147 @@ async function stopTranslation() {
   showToast('Stopping translation…', 'warn');
 }
 
-async function retryFailedTranslation() {
+function retryFailedTranslation() {
   if (!currentTranslationProjectId || !currentTranslationRunId) return;
-  const provider = document.getElementById('translationProviderSelect').value;
-  const snapshot = await window.electronAPI.translation.retryFailed({
-    projectId: currentTranslationProjectId,
-    runId: currentTranslationRunId,
-    provider,
-    model: getTranslationModelValue(),
-    apiKey: ['openai', 'anthropic', 'gemini'].includes(provider)
-      ? document.getElementById('translationApiKey').value.trim()
-      : '',
-    baseUrl: document.getElementById('translationOllamaBaseUrl').value.trim(),
-    sourceLanguage: document.getElementById('translationSourceLang').value,
-    targetLanguage: document.getElementById('translationTargetLang').value,
+  if (!currentTranslationSnapshot?.chunks?.length) {
+    showToast('No chunks available to retry.', 'warn');
+    return;
+  }
+  _openTranslationRetryPicker();
+}
+
+// ── Translation chunk picker (Retry Failed modal) ─────────────────────────────
+
+function _openTranslationRetryPicker() {
+  const modal = document.getElementById('translationRetryPickerModal');
+  modal.style.display = 'flex';
+  _buildTrpGrid();
+}
+
+function _closeTranslationRetryPicker() {
+  document.getElementById('translationRetryPickerModal').style.display = 'none';
+}
+
+function _buildTrpGrid() {
+  const chunks = currentTranslationSnapshot?.chunks || [];
+  const grid = document.getElementById('trpGrid');
+  grid.innerHTML = chunks.map((chunk, i) => {
+    const state = (chunk.latestTranslationState || 'Pending').toLowerCase();
+    const isFailed  = state === 'failed';
+    const isDone    = state === 'completed';
+    const badgeBg   = isFailed ? 'rgba(248,113,113,.85)' : isDone ? 'rgba(52,211,153,.75)' : 'rgba(139,146,176,.5)';
+    const label     = isFailed ? 'FAIL' : isDone ? 'OK' : state === 'processing' ? '…' : '—';
+    return `
+      <label id="trp-cell-${i}" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;padding:6px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface);transition:border-color .12s;user-select:none"
+             onclick="_toggleTrpCell(${i})">
+        <input type="checkbox" data-chunk-idx="${i}" style="display:none">
+        <div style="width:52px;height:40px;background:var(--bg);border-radius:4px;display:flex;align-items:center;justify-content:center;position:relative">
+          <span style="font-size:.75rem;font-weight:700;color:var(--muted)">#${chunk.chunkNumber}</span>
+          <span style="position:absolute;bottom:2px;right:3px;font-size:.6rem;font-weight:700;padding:1px 4px;border-radius:3px;background:${badgeBg};color:#fff">${label}</span>
+        </div>
+        <span style="font-size:.7rem;color:var(--muted);text-align:center;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(chunk.sourceLabel || '')}</span>
+      </label>`;
+  }).join('');
+
+  // Pre-select failed chunks
+  _trpSelectFailed();
+}
+
+function _toggleTrpCell(idx) {
+  const cb   = document.querySelector(`#trpGrid input[data-chunk-idx="${idx}"]`);
+  const cell = document.getElementById(`trp-cell-${idx}`);
+  if (!cb) return;
+  cb.checked = !cb.checked;
+  cell.style.borderColor = cb.checked ? 'var(--accent)' : 'var(--border)';
+  cell.style.background  = cb.checked ? 'rgba(91,114,255,.12)' : 'var(--surface)';
+  _updateTrpCount();
+}
+
+function _trpSetAll(checked) {
+  document.querySelectorAll('#trpGrid input[type=checkbox]').forEach((cb, i) => {
+    cb.checked = checked;
+    const cell = document.getElementById(`trp-cell-${i}`);
+    if (cell) {
+      cell.style.borderColor = checked ? 'var(--accent)' : 'var(--border)';
+      cell.style.background  = checked ? 'rgba(91,114,255,.12)' : 'var(--surface)';
+    }
   });
-  handleTranslationSnapshot(snapshot);
-  showToast('Retrying failed chunks…', 'ok');
+  _updateTrpCount();
+}
+
+function _trpSelectAll()  { _trpSetAll(true);  }
+function _trpSelectNone() { _trpSetAll(false); }
+
+function _trpSelectFailed() {
+  const chunks = currentTranslationSnapshot?.chunks || [];
+  document.querySelectorAll('#trpGrid input[type=checkbox]').forEach((cb, i) => {
+    const state   = (chunks[i]?.latestTranslationState || '').toLowerCase();
+    const checked = state === 'failed';
+    cb.checked = checked;
+    const cell = document.getElementById(`trp-cell-${i}`);
+    if (cell) {
+      cell.style.borderColor = checked ? 'var(--accent)' : 'var(--border)';
+      cell.style.background  = checked ? 'rgba(91,114,255,.12)' : 'var(--surface)';
+    }
+  });
+  _updateTrpCount();
+}
+
+function _trpSelectPending() {
+  const chunks = currentTranslationSnapshot?.chunks || [];
+  document.querySelectorAll('#trpGrid input[type=checkbox]').forEach((cb, i) => {
+    const state   = (chunks[i]?.latestTranslationState || '').toLowerCase();
+    const checked = !['completed', 'failed'].includes(state);
+    cb.checked = checked;
+    const cell = document.getElementById(`trp-cell-${i}`);
+    if (cell) {
+      cell.style.borderColor = checked ? 'var(--accent)' : 'var(--border)';
+      cell.style.background  = checked ? 'rgba(91,114,255,.12)' : 'var(--surface)';
+    }
+  });
+  _updateTrpCount();
+}
+
+function _updateTrpCount() {
+  const checked = document.querySelectorAll('#trpGrid input[type=checkbox]:checked').length;
+  const total   = currentTranslationSnapshot?.chunks?.length || 0;
+  document.getElementById('trpCount').textContent = `${checked} / ${total} chunks selected`;
+  document.getElementById('trpSummary').textContent = checked
+    ? `Will retry ${checked} chunk(s).`
+    : 'Select at least one chunk to retry.';
+  document.getElementById('trpConfirmBtn').disabled = checked === 0;
+}
+
+async function _confirmTranslationRetryPicker() {
+  const chunks = currentTranslationSnapshot?.chunks || [];
+  const selectedChunkNumbers = [];
+  document.querySelectorAll('#trpGrid input[type=checkbox]:checked').forEach(cb => {
+    const idx = parseInt(cb.dataset.chunkIdx, 10);
+    if (chunks[idx]) selectedChunkNumbers.push(chunks[idx].chunkNumber);
+  });
+  if (!selectedChunkNumbers.length) return;
+  _closeTranslationRetryPicker();
+
+  const provider = document.getElementById('translationProviderSelect').value;
+  try {
+    const snapshot = await window.electronAPI.translation.retryRange({
+      projectId: currentTranslationProjectId,
+      runId: currentTranslationRunId,
+      provider,
+      model: getTranslationModelValue(),
+      apiKey: ['openai', 'anthropic', 'gemini'].includes(provider)
+        ? document.getElementById('translationApiKey').value.trim()
+        : '',
+      baseUrl: document.getElementById('translationOllamaBaseUrl').value.trim(),
+      sourceLanguage: document.getElementById('translationSourceLang').value,
+      targetLanguage: document.getElementById('translationTargetLang').value,
+      chunkNumbers: selectedChunkNumbers,
+    });
+    handleTranslationSnapshot(snapshot);
+    showToast(`Retrying ${selectedChunkNumbers.length} chunk(s)…`, 'ok');
+  } catch (err) {
+    showToast(err.message || 'Could not start retry.', 'err');
+  }
 }
 
 async function retryTranslationRange() {
@@ -6349,12 +6512,17 @@ async function exportTranslation() {
     showToast('Open or import a translation project first.', 'warn');
     return;
   }
-  const result = await window.electronAPI.translation.exportResult({
-    projectId: currentTranslationProjectId,
-    format: 'txt',
-  });
-  if (!result?.canceled) {
-    showToast(`Saved to ${result.filePath}`, 'ok');
+  const format = document.getElementById('translationExportFormat').value || 'txt';
+  try {
+    const result = await window.electronAPI.translation.exportResult({
+      projectId: currentTranslationProjectId,
+      format,
+    });
+    if (!result?.canceled) {
+      showToast(`Saved to ${result.filePath}`, 'ok');
+    }
+  } catch (err) {
+    showToast(err.message || 'Export failed.', 'err');
   }
 }
 

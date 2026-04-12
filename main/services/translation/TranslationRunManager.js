@@ -141,7 +141,15 @@ class TranslationRunManager {
   }
 
   async validateWorkerAvailability(command) {
-    const health = await this.workerBridge.healthCheck(command);
+    // If no apiKey was sent from the frontend, resolve it from saved secrets before health check
+    let resolvedApiKey = command.apiKey || '';
+    if (!resolvedApiKey && this.settingsService) {
+      const provider = command.provider || '';
+      if (['openai', 'anthropic', 'gemini'].includes(provider)) {
+        resolvedApiKey = await this.settingsService.getSecret(provider) || '';
+      }
+    }
+    const health = await this.workerBridge.healthCheck({ ...command, apiKey: resolvedApiKey });
     if (!health.ok) {
       throw new Error(health.error || 'Translation worker is unavailable.');
     }
@@ -368,6 +376,11 @@ class TranslationRunManager {
       let selectedChunkIds = this.getSelectedChunkIds(project, chunkFrom, chunkTo);
       if (command.failedOnly) {
         selectedChunkIds = selectedChunkIds.filter(chunkId => sourceRun.chunkStates[chunkId]?.state === TranslationChunkState.Failed);
+      }
+      // Filter to specific chunk numbers when the caller passes an explicit list
+      if (Array.isArray(command.chunkNumbers) && command.chunkNumbers.length > 0) {
+        const allowed = new Set(command.chunkNumbers.map(Number));
+        selectedChunkIds = selectedChunkIds.filter(chunkId => allowed.has(project.chunks[chunkId]?.chunkNumber));
       }
 
       if (!selectedChunkIds.length) {

@@ -333,12 +333,12 @@ function registerOCRIpc({ runtime, dataDir }) {
     const settings = await settingsService.getSettingsForRuntime();
     const exportRoot = settingsService.getResolvedGeneralPaths(settings).exportPath;
     await fse.ensureDir(exportRoot);
+    const filterName = payload.format === 'docx' ? 'Word Document'
+      : payload.format === 'json' ? 'JSON file'
+      : 'Text file';
     const saveDialog = await dialog.showSaveDialog({
       defaultPath: path.join(exportRoot, built.defaultFileName),
-      filters: [{
-        name: payload.format === 'json' ? 'JSON file' : 'Text file',
-        extensions: [payload.format],
-      }],
+      filters: [{ name: filterName, extensions: [payload.format] }],
     });
 
     if (saveDialog.canceled || !saveDialog.filePath) {

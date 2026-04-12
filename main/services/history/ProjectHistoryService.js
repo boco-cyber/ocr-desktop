@@ -548,6 +548,7 @@ class ProjectHistoryService {
     }
     if (item.hasTranslationResults && item.translationProjectId) {
       exportOptions.push({ scope: 'translation', format: 'txt', label: 'Export Translation TXT' });
+      exportOptions.push({ scope: 'translation', format: 'docx', label: 'Export Translation DOCX' });
       exportOptions.push({ scope: 'translation', format: 'json', label: 'Export Translation JSON' });
     }
 
