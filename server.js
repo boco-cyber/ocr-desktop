@@ -15,6 +15,7 @@ const tesseractProvider  = require('./providers/tesseract');
 const imageConverter    = require('./converters/image');
 const pdfConverter      = require('./converters/pdf');
 const { buildDocx }     = require('./output/docx');
+const { PRICING }       = require('./shared/pricing');
 
 const PORT     = process.env.PORT || 3444;
 const DATA_DIR = process.env.APP_DATA_DIR || path.join(__dirname, 'data');
@@ -32,25 +33,6 @@ const PROVIDERS = {
 
 // ── Pricing (USD per 1M tokens) ────────────────────────────────────────────
 // Vision token estimate: a 1000x1000 PNG ≈ 1500 input tokens (rough average)
-// Output for OCR is typically 500–2000 tokens per page
-const PRICING = {
-  anthropic: {
-    'claude-sonnet-4-6':           { input: 3.00,  output: 15.00 },
-    'claude-opus-4-5':             { input: 15.00, output: 75.00 },
-    'claude-haiku-4-5-20251001':   { input: 0.80,  output: 4.00  },
-  },
-  openai: {
-    'gpt-4o':      { input: 2.50,  output: 10.00 },
-    'gpt-4o-mini': { input: 0.15,  output: 0.60  },
-  },
-  gemini: {
-    'gemini-1.5-pro':   { input: 1.25, output: 5.00 },
-    'gemini-1.5-flash': { input: 0.075,output: 0.30 },
-    'gemini-2.0-flash': { input: 0.10, output: 0.40 },
-  },
-  ollama:     {},  // free / local
-  paddleocr:  {},  // free / local
-};
 
 // Image token estimate: base64 length → raw bytes → approx tokens
 // Vision models consume roughly 1 token per 6 bytes of image data (heuristic)
@@ -71,6 +53,7 @@ function isFatal(msg) {
 }
 
 // ── DB helpers ─────────────────────────────────────────────────────────────
+// The DB stores only metadata — page images live on disk under DATA_DIR/pages/{jobId}/
 function loadDB() {
   if (!fs.existsSync(DB_PATH)) return { jobs: {} };
   try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); }
@@ -79,6 +62,19 @@ function loadDB() {
 function saveDB(db) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+}
+
+function getJobPagesDir(jobId) {
+  return path.join(DATA_DIR, 'pages', jobId);
+}
+function getPageImagePath(jobId, index) {
+  return path.join(getJobPagesDir(jobId), `page_${String(index).padStart(4, '0')}.png`);
+}
+// Read a page image from disk as base64 (returns null if missing)
+function readPageBase64(jobId, index) {
+  const p = getPageImagePath(jobId, index);
+  try { return fs.readFileSync(p).toString('base64'); }
+  catch { return null; }
 }
 
 const ACTIVE_RUNNERS = new Set();
@@ -272,7 +268,7 @@ async function runOCRJob(jobId, runtimeOptions = {}) {
         const dbNow = loadDB();
         if (dbNow.jobs[jobId]?.status === 'cancelled' || dbNow.jobs[jobId]?.fatalError) return;
 
-        const imageBase64 = dbNow.jobs[jobId].pages[index].imageBase64;
+        const imageBase64 = readPageBase64(jobId, index);
         const prompt = buildOCRPrompt(effectiveLang, cfg.customPrompt, index, currentJob.pageCount, cfg.ocrMode);
 
         try {
@@ -372,6 +368,9 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   (async () => {
     const filePath = req.file.path;
     try {
+      const pagesDir = getJobPagesDir(jobId);
+      fs.mkdirSync(pagesDir, { recursive: true });
+
       const onPage = (done, total) => {
         const db2 = loadDB();
         if (db2.jobs[jobId]) {
@@ -386,27 +385,34 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-      const totalBase64Bytes = pages.reduce((sum, p) => sum + (p.imageBase64 || '').length, 0);
+      // Write page images to disk — keep base64 out of the JSON DB so it
+      // stays small and fast regardless of page count or image size.
+      const pageMeta = [];
+      for (const page of pages) {
+        const imgPath = getPageImagePath(jobId, page.index);
+        fs.writeFileSync(imgPath, Buffer.from(page.imageBase64, 'base64'));
+        page.imageBase64 = null; // free memory immediately
+        pageMeta.push({ index: page.index, status: 'pending', error: null });
+      }
 
       const db2 = loadDB();
       if (db2.jobs[jobId]) {
-        db2.jobs[jobId].status           = 'uploaded';
-        db2.jobs[jobId].pageCount        = pages.length;
-        db2.jobs[jobId].totalBase64Bytes = totalBase64Bytes;
-        db2.jobs[jobId].convertProgress  = { done: pages.length, total: pages.length };
-        db2.jobs[jobId].pages            = pages.map(p => ({
-          index:       p.index,
-          imageBase64: p.imageBase64,
-          status:      'pending',
-          error:       null,
-        }));
-        db2.jobs[jobId].ocrResults = new Array(pages.length).fill(null);
+        db2.jobs[jobId].status          = 'uploaded';
+        db2.jobs[jobId].pageCount       = pages.length;
+        db2.jobs[jobId].convertProgress = { done: pages.length, total: pages.length };
+        db2.jobs[jobId].pages           = pageMeta;
+        db2.jobs[jobId].ocrResults      = new Array(pages.length).fill(null);
         saveDB(db2);
       }
 
       // ── Auto-detect script from first page (background, non-blocking) ──
       if (pages.length > 0) {
-        detectScriptFromImage(pages[0].imageBase64).then(detected => {
+        const firstPageBase64 = readPageBase64(jobId, 0);
+        const detectWithTimeout = Promise.race([
+          detectScriptFromImage(firstPageBase64),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Script detection timed out')), 30_000)),
+        ]);
+        detectWithTimeout.then(detected => {
           if (detected) {
             const db3 = loadDB();
             if (db3.jobs[jobId]) {
@@ -535,7 +541,8 @@ app.post('/api/estimate', (req, res) => {
   let totalOutputTokens = 0;
 
   for (const page of job.pages) {
-    const imgTokens = estimateImageTokens(page.imageBase64);
+    const imageBase64 = readPageBase64(jobId, page.index);
+    const imgTokens = estimateImageTokens(imageBase64);
     totalInputTokens  += imgTokens + PROMPT_TOKENS;
     totalOutputTokens += OUTPUT_PER_PAGE;
   }
@@ -821,17 +828,12 @@ app.get('/api/download/:jobId/docx', async (req, res) => {
 
 // ── Single page image (for preview pane) ─────────────────────────────────
 app.get('/api/page-image/:jobId/:pageIndex', (req, res) => {
-  const db  = loadDB();
-  const job = db.jobs[req.params.jobId];
-  if (!job) return res.status(404).json({ error: 'Not found' });
-  const idx  = parseInt(req.params.pageIndex);
-  const page = (job.pages || []).find(p => p.index === idx);
-  if (!page) return res.status(404).json({ error: 'Page not found' });
-  // Return as actual PNG image so browser can cache it efficiently
-  const buf = Buffer.from(page.imageBase64 || '', 'base64');
+  const idx     = parseInt(req.params.pageIndex);
+  const imgPath = getPageImagePath(req.params.jobId, idx);
+  if (!fs.existsSync(imgPath)) return res.status(404).json({ error: 'Page not found' });
   res.setHeader('Content-Type', 'image/png');
   res.setHeader('Cache-Control', 'private, max-age=3600');
-  res.send(buf);
+  res.sendFile(imgPath);
 });
 
 // ── Page images list (thumbnails — returns URLs only, no base64) ──────────
@@ -868,6 +870,8 @@ app.delete('/api/jobs/:jobId', (req, res) => {
   if (!db.jobs[req.params.jobId]) return res.status(404).json({ error: 'Not found' });
   delete db.jobs[req.params.jobId];
   saveDB(db);
+  // Remove page image files
+  try { fs.rmSync(getJobPagesDir(req.params.jobId), { recursive: true, force: true }); } catch (_) {}
   res.json({ ok: true });
 });
 
@@ -905,6 +909,43 @@ app.post('/api/test-key', async (req, res) => {
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
+});
+
+// ── Health / capability probe ─────────────────────────────────────────────
+app.get('/api/health', async (_req, res) => {
+  function probe(cmd, args) {
+    return new Promise(resolve => {
+      const { spawn } = require('child_process');
+      const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 });
+      let out = '';
+      child.stdout.on('data', d => { out += d; });
+      child.stderr.on('data', d => { out += d; });
+      child.on('error', () => resolve(null));
+      child.on('close', code => resolve(code === 0 ? out.trim() : null));
+    });
+  }
+
+  const [pythonVersion, ghostscriptVersion] = await Promise.all([
+    probe('python3', ['--version']).catch(() => null),
+    probe('ghostscript', ['--version']).catch(() => null),
+  ]);
+
+  const hasPyMuPDF = pythonVersion
+    ? await probe('python3', ['-c', 'import fitz; print("ok")']).then(r => r === 'ok').catch(() => false)
+    : false;
+
+  res.json({
+    status: 'ok',
+    version: require('./package.json').version,
+    providers: Object.keys(PROVIDERS),
+    capabilities: {
+      python:      pythonVersion ? { available: true, version: pythonVersion } : { available: false },
+      pymupdf:     { available: hasPyMuPDF },
+      ghostscript: ghostscriptVersion ? { available: true, version: ghostscriptVersion } : { available: false },
+      pdfjs:       { available: true },  // pure JS, always available
+    },
+    pdfStrategy: hasPyMuPDF ? 'pymupdf' : ghostscriptVersion ? 'ghostscript' : 'pdfjs',
+  });
 });
 
 // ── Serve UI ───────────────────────────────────────────────────────────────

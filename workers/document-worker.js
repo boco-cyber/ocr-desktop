@@ -11,7 +11,7 @@
 const path = require('path');
 const fse  = require('fs-extra');
 const { v4: uuidv4 } = require('uuid');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 
 // ── IPC bridge ───────────────────────────────────────────────────────────────
 process.on('message', async msg => {
@@ -29,13 +29,31 @@ process.on('message', async msg => {
 });
 
 // ── Find Python with PyMuPDF ─────────────────────────────────────────────────
+let _pythonCache = undefined;
 async function _findPython() {
-  for (const cmd of ['python', 'python3', 'py']) {
-    try {
-      const out = execSync(`${cmd} -c "import fitz; print('ok')"`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
-      if (out === 'ok') return cmd;
-    } catch (_) {}
+  if (_pythonCache !== undefined) {
+    if (_pythonCache === null) throw new Error('No Python installation with PyMuPDF (fitz) found. Run: pip install pymupdf');
+    return _pythonCache;
   }
+  const os = require('os');
+  const candidates = [
+    path.join(os.homedir(), 'ocr-venv', 'bin', 'python'),
+    path.join(os.homedir(), 'ocr-venv', 'bin', 'python3'),
+    'python3', 'python', 'py',
+  ];
+  for (const cmd of candidates) {
+    const found = await new Promise(resolve => {
+      const child = spawn(cmd, ['-c', 'import fitz; print("ok")'], {
+        stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000,
+      });
+      let out = '';
+      child.stdout.on('data', d => { out += d; });
+      child.on('error', () => resolve(false));
+      child.on('close', () => resolve(out.trim() === 'ok'));
+    });
+    if (found) { _pythonCache = cmd; return cmd; }
+  }
+  _pythonCache = null;
   throw new Error('No Python installation with PyMuPDF (fitz) found. Run: pip install pymupdf');
 }
 

@@ -102,46 +102,63 @@ class OCRImportService {
 
         let detectedLanguage = null;
 
+        // ── Write page files outside withState ──────────────────────────────
+        // Keeping heavy I/O (disk writes + sharp thumbnails) out of the state
+        // lock prevents blocking the mutation chain and keeps memory bounded:
+        // we decode each page buffer, write it, then drop it before moving on.
+        const pageMetaList = [];
+        for (const page of pages) {
+          const pageId = uuidv4();
+          const baseName = `page_${String(page.index + 1).padStart(4, '0')}.png`;
+          const originalImagePath = path.join(originalPagesDir, baseName);
+          const preparedImagePath = path.join(preparedPagesDir, baseName);
+          const thumbnailPath = path.join(thumbsDir, baseName);
+
+          const buffer = Buffer.from(page.imageBase64, 'base64');
+          page.imageBase64 = null; // free memory immediately after decoding
+
+          await fse.writeFile(originalImagePath, buffer);
+          await fse.copy(originalImagePath, preparedImagePath);
+          await sharp(buffer)
+            .resize({ width: THUMB_WIDTH, fit: 'inside', withoutEnlargement: true })
+            .png()
+            .toFile(thumbnailPath);
+
+          pageMetaList.push({
+            id: pageId,
+            index: page.index,
+            pageNumber: page.index + 1,
+            width: page.width,
+            height: page.height,
+            originalImagePath,
+            preparedImagePath,
+            thumbnailPath,
+            latestText: '',
+            latestRunId: null,
+            latestOcrState: 'Pending',
+            lastError: null,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        // Lightweight state update — no I/O inside the lock
         await this.store.withState(async state => {
           const project = state.projects[projectId];
-          for (const page of pages) {
-            const pageId = uuidv4();
-            const baseName = `page_${String(page.index + 1).padStart(4, '0')}.png`;
-            const originalImagePath = path.join(originalPagesDir, baseName);
-            const preparedImagePath = path.join(preparedPagesDir, baseName);
-            const thumbnailPath = path.join(thumbsDir, baseName);
-            const buffer = Buffer.from(page.imageBase64, 'base64');
-
-            await fse.writeFile(originalImagePath, buffer);
-            await fse.copy(originalImagePath, preparedImagePath);
-            await sharp(buffer)
-              .resize({ width: THUMB_WIDTH, fit: 'inside', withoutEnlargement: true })
-              .png()
-              .toFile(thumbnailPath);
-
-            project.pageIds.push(pageId);
-            project.pages[pageId] = {
-              id: pageId,
-              index: page.index,
-              pageNumber: page.index + 1,
-              width: page.width,
-              height: page.height,
-              originalImagePath,
-              preparedImagePath,
-              thumbnailPath,
-              latestText: '',
-              latestRunId: null,
-              latestOcrState: 'Pending',
-              lastError: null,
-              updatedAt: new Date().toISOString(),
-            };
+          if (!project) return;
+          for (const pageMeta of pageMetaList) {
+            project.pageIds.push(pageMeta.id);
+            project.pages[pageMeta.id] = pageMeta;
           }
           project.updatedAt = new Date().toISOString();
         });
 
-        if (pages[0]?.imageBase64) {
-          const runtimeConfig = this.settingsService ? this.settingsService.getRuntimeConfig(await this.settingsService.getSettingsForRuntime()) : {};
-          detectedLanguage = await detectScriptFromImage(pages[0].imageBase64, runtimeConfig);
+        // Use the already-written first page file — base64 was freed above
+        if (pageMetaList[0]?.originalImagePath) {
+          try {
+            const firstPageBase64 = (await fse.readFile(pageMetaList[0].originalImagePath)).toString('base64');
+            const runtimeConfig = this.settingsService ? this.settingsService.getRuntimeConfig(await this.settingsService.getSettingsForRuntime()) : {};
+            detectedLanguage = await detectScriptFromImage(firstPageBase64, runtimeConfig);
+          } catch (_) { /* non-critical — proceed without language detection */ }
         }
 
         await this.store.withState(async state => {

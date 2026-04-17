@@ -2,13 +2,18 @@
   "name": "ocr-desktop",
   "version": "1.0.0",
   "description": "AI-powered OCR desktop app — extract text from images and PDFs using Anthropic, OpenAI, Gemini, or Ollama",
+  "author": {
+    "name": "OCR Desktop",
+    "email": "gerges.boctor@gmail.com"
+  },
   "main": "electron.js",
   "scripts": {
     "start": "node server.js",
     "electron": "electron .",
     "build": "npm run build:installer",
     "build:portable": "electron-builder --win portable",
-    "build:installer": "electron-builder --win nsis"
+    "build:installer": "electron-builder --win nsis",
+    "build:linux": "electron-builder --linux deb AppImage"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -68,6 +73,16 @@
     },
     "portable": {
       "artifactName": "ocr-desktop-portable-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        { "target": "deb", "arch": ["x64"] },
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "category": "Utility"
+    },
+    "deb": {
+      "artifactName": "ocr-desktop-${version}-amd64.deb"
     },
     "directories": {
       "output": "dist-electron"

@@ -3859,8 +3859,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <div id="setupStepChoose" style="padding:20px 28px;overflow-y:auto;flex:1">
 
           <div style="margin-bottom:8px;font-size:.78rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em">Environment</div>
-          <div id="setupEnvStatus" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:.82rem;color:var(--text-muted)">
-            Checking Python…
+          <div id="setupEnvStatus" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:.82rem">
+            <div id="setupEnvRows" style="display:flex;flex-direction:column;gap:6px">
+              <span style="color:var(--text-muted)">Checking environment…</span>
+            </div>
+            <div id="setupAptBox" style="display:none;margin-top:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 12px">
+              <div style="font-size:.75rem;color:#8b949e;margin-bottom:6px">Run this in a terminal, then click <strong style="color:#c9d1d9">Check Again</strong>:</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <code id="setupAptCmd" style="flex:1;font-size:.8rem;color:#79c0ff;word-break:break-all"></code>
+                <button class="btn btn-ghost btn-sm" onclick="setupCopyAptCmd()" style="white-space:nowrap;flex-shrink:0">Copy</button>
+              </div>
+            </div>
           </div>
 
           <!-- PaddleOCR card -->
@@ -3903,10 +3912,11 @@ hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         <!-- Step: installing (terminal output) -->
         <div id="setupStepInstalling" style="display:none;flex-direction:column;flex:1;overflow:hidden">
           <div style="padding:14px 28px 10px;border-bottom:1px solid var(--border);font-size:.88rem;font-weight:600" id="setupInstallingTitle">Installing…</div>
-          <div id="setupTerminal" style="flex:1;overflow-y:auto;padding:14px 20px;font-family:monospace;font-size:.78rem;line-height:1.6;background:#0d1117;color:#c9d1d9;min-height:220px;max-height:340px"></div>
+          <pre id="setupTerminal" style="flex:1;overflow-y:auto;padding:14px 20px;font-family:monospace;font-size:.78rem;line-height:1.6;background:#0d1117;color:#c9d1d9;min-height:220px;max-height:340px;margin:0;white-space:pre-wrap;word-break:break-word"></pre>
           <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center">
             <span id="setupInstallingStatus" style="font-size:.82rem;color:var(--text-muted);flex:1">Installing…</span>
-            <button class="btn btn-ghost btn-sm" id="setupBackBtn" style="display:none" onclick="setupShowChoose()">← Back</button>
+            <button class="btn btn-ghost btn-sm" id="setupBackBtn" style="display:none" onclick="setupShowChoose();setupCheckEnvironment()">← Back</button>
+            <button class="btn btn-ghost btn-sm" id="setupCheckAgainBtn" style="display:none" onclick="setupShowChoose();setupCheckEnvironment()">Check Again</button>
             <button class="btn btn-primary btn-sm" id="setupDoneBtn" style="display:none" onclick="setupOverlayClose()">Done</button>
           </div>
         </div>
@@ -9125,19 +9135,44 @@ function setupShowChoose() {
 function setupShowTerminal(feature) {
   const names = { paddle: 'PaddleOCR', nllb: 'NLLB Translation' };
   document.getElementById('setupInstallingTitle').textContent = `Installing ${names[feature] || feature}…`;
-  document.getElementById('setupInstallingStatus').textContent = 'Starting…';
+  document.getElementById('setupInstallingStatus').textContent = 'Running…';
   document.getElementById('setupInstallingStatus').style.color = 'var(--text-muted)';
-  document.getElementById('setupTerminal').textContent = '';
+  document.getElementById('setupTerminal').innerHTML = '';
   document.getElementById('setupStepChoose').style.display = 'none';
   document.getElementById('setupStepInstalling').style.display = 'flex';
   document.getElementById('setupBackBtn').style.display = 'none';
+  document.getElementById('setupCheckAgainBtn').style.display = 'none';
   document.getElementById('setupDoneBtn').style.display = 'none';
+}
+
+function setupEnvRow(icon, label, detail, color) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:8px';
+  const iconSpan = document.createElement('span');
+  iconSpan.style.cssText = `font-size:.9rem;width:16px;text-align:center;color:${color}`;
+  iconSpan.textContent = icon;
+  const text = document.createElement('span');
+  text.style.cssText = `color:${color}`;
+  text.textContent = label;
+  const detailSpan = document.createElement('span');
+  detailSpan.style.cssText = 'color:var(--text-muted);margin-left:2px';
+  detailSpan.textContent = detail ? `— ${detail}` : '';
+  row.appendChild(iconSpan);
+  row.appendChild(text);
+  row.appendChild(detailSpan);
+  return row;
 }
 
 async function setupCheckEnvironment() {
   if (!isElectronApp || !window.electronAPI?.setup) return;
 
-  // Reset badges to loading state
+  const rowsEl  = document.getElementById('setupEnvRows');
+  const aptBox  = document.getElementById('setupAptBox');
+  const aptCmd  = document.getElementById('setupAptCmd');
+
+  if (rowsEl) { rowsEl.innerHTML = '<span style="color:var(--text-muted)">Checking environment…</span>'; }
+  if (aptBox)  aptBox.style.display = 'none';
+
   for (const id of ['setupPaddleBadge', 'setupNllbBadge']) {
     const el = document.getElementById(id);
     if (el) { el.textContent = '…'; el.style.color = 'var(--text-muted)'; }
@@ -9145,9 +9180,47 @@ async function setupCheckEnvironment() {
 
   try {
     const env = await window.electronAPI.setup.checkEnvironment();
+    const p   = env.prerequisites || {};
+    const missingAptPkgs = [];
 
-    // Python row (shown in footer note)
-    const hasPython = env.python?.found;
+    if (rowsEl) {
+      rowsEl.innerHTML = '';
+
+      // Python row
+      if (env.python?.found) {
+        rowsEl.appendChild(setupEnvRow('✓', 'Python', env.python.version, '#2ecc71'));
+      } else {
+        rowsEl.appendChild(setupEnvRow('✗', 'Python', 'not found', '#e74c3c'));
+        missingAptPkgs.push('python3 python3-pip python3-venv');
+      }
+
+      // pip row (only if Python found)
+      if (env.python?.found) {
+        if (p.pip) {
+          rowsEl.appendChild(setupEnvRow('✓', 'pip', 'available', '#2ecc71'));
+        } else {
+          rowsEl.appendChild(setupEnvRow('✗', 'pip', 'not available', '#e74c3c'));
+          missingAptPkgs.push('python3-pip');
+        }
+      }
+
+      // venv row (only if Python found)
+      if (env.python?.found) {
+        if (p.venv) {
+          rowsEl.appendChild(setupEnvRow('✓', 'python-venv', 'available', '#2ecc71'));
+        } else {
+          rowsEl.appendChild(setupEnvRow('✗', 'python-venv', `not available — packages will be installed in a virtual environment`, '#f39c12'));
+          if (p.venvAptPackage) missingAptPkgs.push(p.venvAptPackage);
+        }
+      }
+    }
+
+    // Show apt command box if anything is missing
+    if (missingAptPkgs.length > 0 && aptBox && aptCmd) {
+      const uniquePkgs = [...new Set(missingAptPkgs.join(' ').split(' ').filter(Boolean))];
+      aptCmd.textContent = `sudo apt-get install -y ${uniquePkgs.join(' ')}`;
+      aptBox.style.display = '';
+    }
 
     // PaddleOCR badge
     const paddleBadge = document.getElementById('setupPaddleBadge');
@@ -9184,21 +9257,16 @@ async function setupCheckEnvironment() {
         nllbBadge.style.color = 'var(--warning, #f39c12)';
       }
     }
-
-    // Update env status row
-    const envEl = document.getElementById('setupEnvStatus');
-    if (envEl) {
-      if (hasPython) {
-        envEl.textContent = `✓ Python found: ${env.python.version}`;
-        envEl.style.color = 'var(--success, #2ecc71)';
-      } else {
-        envEl.innerHTML = '✗ Python not found on PATH. Install <a href="#" onclick="openExternal(\'https://www.python.org/downloads/\');return false" style="color:var(--accent)">Python 3.9+</a> first.';
-        envEl.style.color = 'var(--danger, #e74c3c)';
-      }
-    }
   } catch (err) {
     console.warn('[setup] checkEnvironment failed:', err);
+    if (rowsEl) rowsEl.innerHTML = '<span style="color:var(--danger,#e74c3c)">Failed to check environment</span>';
   }
+}
+
+function setupCopyAptCmd() {
+  const cmd = document.getElementById('setupAptCmd')?.textContent || '';
+  if (cmd) navigator.clipboard.writeText(cmd).catch(() => {});
+  showToast('Command copied to clipboard', 'ok');
 }
 
 async function setupInstall(feature) {
@@ -9209,21 +9277,42 @@ async function setupInstall(feature) {
   const terminal = document.getElementById('setupTerminal');
   const statusEl = document.getElementById('setupInstallingStatus');
 
-  function appendLine(line) {
-    terminal.textContent += line + '\n';
+  function appendLine(raw) {
+    const span = document.createElement('span');
+    // Colorize special prefixes emitted by SetupService
+    if (raw.startsWith('STEP_OK ')) {
+      span.style.color = '#3fb950';
+      span.textContent = '✓ ' + raw.slice(8) + '\n';
+    } else if (raw.startsWith('STEP_FAIL ')) {
+      span.style.color = '#f85149';
+      span.textContent = '✗ ' + raw.slice(10) + '\n';
+    } else if (raw.startsWith('STEP_WARN ')) {
+      span.style.color = '#d29922';
+      span.textContent = '⚠ ' + raw.slice(10) + '\n';
+    } else if (raw.startsWith('STEP_CMD ')) {
+      span.style.color = '#79c0ff';
+      span.textContent = '  $ ' + raw.slice(9) + '\n';
+    } else if (/^error[: ]/i.test(raw) || raw.startsWith('ERROR:') || raw.startsWith('✗')) {
+      span.style.color = '#f85149';
+      span.textContent = raw + '\n';
+    } else if (raw.startsWith('✓') || raw.startsWith('Successfully installed')) {
+      span.style.color = '#3fb950';
+      span.textContent = raw + '\n';
+    } else if (raw.startsWith('⚠') || raw.startsWith('WARNING')) {
+      span.style.color = '#d29922';
+      span.textContent = raw + '\n';
+    } else {
+      span.textContent = raw + '\n';
+    }
+    terminal.appendChild(span);
     terminal.scrollTop = terminal.scrollHeight;
   }
 
   // Subscribe to streaming install lines
-  if (_setupInstallUnsub) {
-    _setupInstallUnsub();
-    _setupInstallUnsub = null;
-  }
+  if (_setupInstallUnsub) { _setupInstallUnsub(); _setupInstallUnsub = null; }
   _setupInstallUnsub = window.electronAPI.setup.onInstallLine(({ feature: f, line }) => {
     if (f === feature) appendLine(line);
   });
-
-  statusEl.textContent = 'Running pip install…';
 
   try {
     const result = await window.electronAPI.setup.install({ feature });
@@ -9231,20 +9320,22 @@ async function setupInstall(feature) {
 
     if (result.ok) {
       statusEl.textContent = '✓ Installation complete!';
-      statusEl.style.color = 'var(--success, #2ecc71)';
+      statusEl.style.color = '#3fb950';
+      document.getElementById('setupDoneBtn').style.display = '';
     } else {
       statusEl.textContent = `✗ Failed: ${result.error || 'Unknown error'}`;
-      statusEl.style.color = 'var(--danger, #e74c3c)';
+      statusEl.style.color = '#f85149';
+      document.getElementById('setupCheckAgainBtn').style.display = '';
     }
   } catch (err) {
     if (_setupInstallUnsub) { _setupInstallUnsub(); _setupInstallUnsub = null; }
     statusEl.textContent = `✗ Error: ${err.message}`;
-    statusEl.style.color = 'var(--danger, #e74c3c)';
+    statusEl.style.color = '#f85149';
     appendLine(`ERROR: ${err.message}`);
+    document.getElementById('setupCheckAgainBtn').style.display = '';
   }
 
   document.getElementById('setupBackBtn').style.display = '';
-  document.getElementById('setupDoneBtn').style.display = '';
 
   // Refresh environment badges after install
   setupCheckEnvironment();

@@ -3,11 +3,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const fse = require('fs-extra');
+const { PRICING: OCR_PRICING } = require('../../../shared/pricing');
 
 const OCR_PROVIDER_MODELS = {
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-5', 'claude-haiku-4-5-20251001'],
-  openai: ['gpt-4o', 'gpt-4o-mini'],
-  gemini: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'],
+  anthropic: Object.keys(OCR_PRICING.anthropic),
+  openai: Object.keys(OCR_PRICING.openai),
+  gemini: Object.keys(OCR_PRICING.gemini),
   ollama: [],
   paddleocr: [],
   tesseract: [],

@@ -23,7 +23,7 @@ const path  = require('path');
 const fs    = require('fs');
 const os    = require('os');
 const sharp = require('sharp');
-const { spawn } = require('child_process');
+const { spawn }    = require('child_process');
 
 const MAX_DIM = 2400;
 
@@ -75,6 +75,7 @@ async function convertWithFitz(pdfPath, { onPage, python, enhance } = {}) {
     const result = [];
     let totalPages = 0;    // set from first "total_pages" message
     let rejected = false;
+    const pendingReads = [];
 
     proc.stderr.on('data', d => { stderr += d.toString(); });
 
@@ -105,31 +106,33 @@ async function convertWithFitz(pdfPath, { onPage, python, enhance } = {}) {
 
           // Page ready — read from disk immediately and delete to free space
           if (msg.path && fs.existsSync(msg.path)) {
-            try {
-              const fileBuf = fs.readFileSync(msg.path);
-              fs.unlinkSync(msg.path); // free disk space immediately
+            pendingReads.push((async () => {
+              try {
+                const fileBuf = await fs.promises.readFile(msg.path);
+                await fs.promises.unlink(msg.path).catch(() => {}); // free disk space immediately
 
-              const meta = sharp(fileBuf).metadata(); // sync metadata via sync API not available; handled below
-              // Push as-is; we'll process metadata synchronously when possible
-              result.push({
-                index:       msg.index,
-                imageBase64: fileBuf.toString('base64'),
-                width:       msg.width,
-                height:      msg.height,
-                _buf:        fileBuf,   // keep for potential resize; cleared after
-              });
+                // Push as-is; we'll process metadata concurrently when possible
+                result.push({
+                  index:       msg.index,
+                  imageBase64: fileBuf.toString('base64'),
+                  width:       msg.width,
+                  height:      msg.height,
+                  _buf:        fileBuf,   // keep for potential resize; cleared after
+                });
 
-              const done = result.length;
-              if (onPage) onPage(done, totalPages);
-            } catch (readErr) {
-              console.warn('[pdf] Could not read page file:', readErr.message);
-            }
+                const done = result.length;
+                if (onPage) onPage(done, totalPages);
+              } catch (readErr) {
+                console.warn('[pdf] Could not read page file:', readErr.message);
+              }
+            })());
           }
         } catch (_) { /* non-JSON stdout line — ignore */ }
       }
     });
 
     proc.on('close', async code => {
+      await Promise.all(pendingReads);
       _rmDir(tmpDir);
       if (rejected) return;
       if (code !== 0 && result.length === 0) {
@@ -137,12 +140,12 @@ async function convertWithFitz(pdfPath, { onPage, python, enhance } = {}) {
         return;
       }
 
-      // Final pass: resize any oversized pages (done after streaming to not block progress)
+      // Final pass: resize any oversized pages concurrently
       try {
-        for (const page of result) {
+        await Promise.all(result.map(async (page) => {
           const buf = page._buf;
           delete page._buf;
-          if (!buf) continue;
+          if (!buf) return;
           const meta = await sharp(buf).metadata();
           page.width  = meta.width  || page.width;
           page.height = meta.height || page.height;
@@ -152,7 +155,8 @@ async function convertWithFitz(pdfPath, { onPage, python, enhance } = {}) {
               .png()
               .toBuffer()).toString('base64');
           }
-        }
+        }));
+
         // Sort by index in case any arrived out of order
         result.sort((a, b) => a.index - b.index);
         resolve(result);
@@ -209,47 +213,86 @@ async function convertWithPdfToImg(pdfPath, { onPage } = {}) {
   const doc   = await pdf(pdfPath, { scale: 2.0 });
   const total = doc.length || 0;
 
+  const pagePromises = [];
   let index = 0;
+  let doneCount = 0;
+
   for await (const pageImage of doc) {
-    const meta = await sharp(pageImage).metadata();
+    const currentIndex = index++;
+    pagePromises.push((async () => {
+      const meta = await sharp(pageImage).metadata();
 
-    // Detect blank pages (mean brightness ≈ 255 = all white)
-    const stats = await sharp(pageImage).greyscale().stats();
-    const mean = stats.channels[0]?.mean ?? 128;
-    const _isBlanked = mean > 252;
+      // Detect blank pages (mean brightness ≈ 255 = all white)
+      const stats = await sharp(pageImage).greyscale().stats();
+      const mean = stats.channels[0]?.mean ?? 128;
+      const _isBlanked = mean > 252;
 
-    const needsResize = (meta.width || 0) > MAX_DIM || (meta.height || 0) > MAX_DIM;
-    let buffer = pageImage;
-    if (needsResize) {
-      buffer = await sharp(pageImage)
-        .resize(MAX_DIM, MAX_DIM, { fit: 'inside', withoutEnlargement: true })
-        .png()
-        .toBuffer();
-    }
+      const needsResize = (meta.width || 0) > MAX_DIM || (meta.height || 0) > MAX_DIM;
+      let buffer = pageImage;
+      if (needsResize) {
+        buffer = await sharp(pageImage)
+          .resize(MAX_DIM, MAX_DIM, { fit: 'inside', withoutEnlargement: true })
+          .png()
+          .toBuffer();
+      }
 
-    pages.push({
-      index,
-      imageBase64: buffer.toString('base64'),
-      width:       meta.width  || MAX_DIM,
-      height:      meta.height || MAX_DIM,
-      _isBlanked,
-    });
-    index++;
-    if (onPage) onPage(index, total);
+      doneCount++;
+      if (onPage) onPage(doneCount, total);
+
+      return {
+        index: currentIndex,
+        imageBase64: buffer.toString('base64'),
+        width:       meta.width  || MAX_DIM,
+        height:      meta.height || MAX_DIM,
+        _isBlanked,
+      };
+    })());
   }
 
-  return pages;
+  const resolvedPages = await Promise.all(pagePromises);
+  return resolvedPages.sort((a, b) => a.index - b.index);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Cache the result of Python detection — probing on every import freezes the
+// main process because the old execSync implementation blocked synchronously.
+let _pythonCache = undefined; // undefined = not probed yet; null = not found; string = path
+
 async function _findPython() {
-  const { execSync } = require('child_process');
-  for (const cmd of ['python', 'python3', 'py']) {
-    try {
-      const out = execSync(`${cmd} -c "import fitz; print('ok')"`, { stdio: 'pipe', timeout: 5000 }).toString().trim();
-      if (out === 'ok') return cmd;
-    } catch (_) {}
+  if (_pythonCache !== undefined) {
+    if (_pythonCache === null) throw new Error('No Python installation with PyMuPDF (fitz) found');
+    return _pythonCache;
   }
+
+  const homeDir = require('os').homedir();
+  const candidates = [
+    path.join(homeDir, 'ocr-venv', 'bin', 'python'),
+    path.join(homeDir, 'ocr-venv', 'bin', 'python3'),
+    'python3',
+    'python',
+    'py',
+  ];
+
+  for (const cmd of candidates) {
+    const found = await new Promise(resolve => {
+      // Use spawn (non-blocking) — execSync would freeze the Electron main process
+      const child = spawn(cmd, ['-c', 'import fitz; print("ok")'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 5000,
+      });
+      let out = '';
+      child.stdout.on('data', d => { out += d; });
+      child.on('error', () => resolve(false));
+      child.on('close', () => resolve(out.trim() === 'ok'));
+    });
+    if (found) {
+      _pythonCache = cmd;
+      return cmd;
+    }
+  }
+
+  _pythonCache = null;
   throw new Error('No Python installation with PyMuPDF (fitz) found');
 }
 
